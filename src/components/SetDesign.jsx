@@ -1,34 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useStore } from '../store.jsx'
-import { putFile, getFile, deleteFile } from '../fileStore.js'
+import { putFile, deleteFile, fileURL } from '../fileStore.js'
 import { uid, segColor, MIX_STATUSES, SIDES, sideLabel } from '../lib.js'
 import { Button, Card, CardHeader, Badge, Select, TextInput, EmptyState, Modal } from './ui.jsx'
 
-// Loads a stored blob and exposes an object URL for it.
-function useFileURL(fileId) {
-  const [url, setUrl] = useState(null)
-  useEffect(() => {
-    let alive = true
-    let objectUrl = null
-    setUrl(null)
-    if (fileId) {
-      getFile(fileId).then((blob) => {
-        if (alive && blob) {
-          objectUrl = URL.createObjectURL(blob)
-          setUrl(objectUrl)
-        }
-      })
-    }
-    return () => {
-      alive = false
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [fileId])
-  return url
-}
-
 function UploadButton({ accept, label, onFile }) {
   const ref = useRef(null)
+  const [busy, setBusy] = useState(false)
+  const handle = async (f) => {
+    setBusy(true)
+    try {
+      await onFile(f)
+    } catch (e) {
+      console.error(e)
+      alert('Upload failed — check your connection and try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <>
       <input
@@ -38,15 +27,15 @@ function UploadButton({ accept, label, onFile }) {
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0]
-          if (f) onFile(f)
+          if (f) handle(f)
           e.target.value = ''
         }}
       />
-      <Button size="sm" onClick={() => ref.current?.click()}>
+      <Button size="sm" disabled={busy} onClick={() => ref.current?.click()}>
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M8 11V2M4.5 5.5L8 2l3.5 3.5M2.5 13.5h11" />
         </svg>
-        {label}
+        {busy ? 'Uploading…' : label}
       </Button>
     </>
   )
@@ -200,7 +189,7 @@ function SegmentDetail({ segment }) {
 
 function FormsCard({ segment }) {
   const { updateSegment } = useStore()
-  const url = useFileURL(segment.pdf?.fileId)
+  const url = fileURL(segment.pdf?.fileId)
 
   const upload = async (file) => {
     const id = uid()
@@ -259,7 +248,7 @@ function FormsCard({ segment }) {
 
 function MixCard({ segment }) {
   const { updateSegment } = useStore()
-  const url = useFileURL(segment.audio?.fileId)
+  const url = fileURL(segment.audio?.fileId)
   const status = mixStatusInfo(segment.mixStatus)
 
   const upload = async (file) => {

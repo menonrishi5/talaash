@@ -1,10 +1,13 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { uid } from './lib.js'
+import { supabase } from './supabase.js'
 
-// Single app-state store persisted to localStorage. When Firebase (Firestore)
-// is added, this provider becomes the sync layer; component code stays put.
+// App state lives in Supabase (table app_state, one JSON doc per domain) so
+// every device sees the same data. localStorage is kept as a fast local cache
+// for instant first paint; the server copy wins on load.
 
 const KEY = 'talaash-hq-v1'
+const DOMAIN_KEYS = ['roster', 'segments', 'practiceBlocks', 'benching']
 
 const DEFAULT_STATE = {
   roster: [], // {id, name}
@@ -42,9 +45,72 @@ const StoreCtx = createContext(null)
 
 export function StoreProvider({ children }) {
   const [state, setState] = useState(load)
+  const [syncStatus, setSyncStatus] = useState('connecting') // connecting | synced | saving | offline
+  const loadedRef = useRef(false)
+  const lastSynced = useRef({}) // domain key -> JSON string last written to/read from server
+  const saveTimer = useRef(null)
 
+  // Initial pull: server copy wins; if the server is empty (first ever run),
+  // seed it from whatever this browser has locally.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { data, error } = await supabase.from('app_state').select('key,data')
+        if (error) throw error
+        if (cancelled) return
+        if (data.length === 0) {
+          const local = load()
+          const rows = DOMAIN_KEYS.map((k) => ({ key: k, data: local[k] }))
+          const { error: upErr } = await supabase.from('app_state').upsert(rows)
+          if (upErr) throw upErr
+          DOMAIN_KEYS.forEach((k) => (lastSynced.current[k] = JSON.stringify(local[k])))
+        } else {
+          const merged = { ...DEFAULT_STATE }
+          for (const row of data) if (DOMAIN_KEYS.includes(row.key)) merged[row.key] = row.data
+          merged.benching = { ...DEFAULT_STATE.benching, ...(merged.benching || {}) }
+          DOMAIN_KEYS.forEach((k) => (lastSynced.current[k] = JSON.stringify(merged[k])))
+          setState(merged)
+        }
+        loadedRef.current = true
+        setSyncStatus('synced')
+      } catch (e) {
+        console.error('Supabase load failed — working from local cache.', e)
+        loadedRef.current = true
+        if (!cancelled) setSyncStatus('offline')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Persist: localStorage immediately, server debounced (only changed domains).
   useEffect(() => {
     localStorage.setItem(KEY, JSON.stringify(state))
+    if (!loadedRef.current) return
+    const changed = DOMAIN_KEYS.filter(
+      (k) => JSON.stringify(state[k]) !== lastSynced.current[k],
+    )
+    if (changed.length === 0) return
+    setSyncStatus('saving')
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(async () => {
+      try {
+        const rows = changed.map((k) => ({
+          key: k,
+          data: state[k],
+          updated_at: new Date().toISOString(),
+        }))
+        const { error } = await supabase.from('app_state').upsert(rows)
+        if (error) throw error
+        changed.forEach((k) => (lastSynced.current[k] = JSON.stringify(state[k])))
+        setSyncStatus('synced')
+      } catch (e) {
+        console.error('Supabase save failed — changes kept locally.', e)
+        setSyncStatus('offline')
+      }
+    }, 800)
   }, [state])
 
   const api = useMemo(() => {
@@ -52,6 +118,7 @@ export function StoreProvider({ children }) {
 
     return {
       state,
+      syncStatus,
 
       // ---- roster ----
       addMember(name) {
@@ -259,7 +326,7 @@ export function StoreProvider({ children }) {
         set(DEFAULT_STATE)
       },
     }
-  }, [state])
+  }, [state, syncStatus])
 
   return <StoreCtx.Provider value={api}>{children}</StoreCtx.Provider>
 }

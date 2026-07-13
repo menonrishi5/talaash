@@ -2,7 +2,9 @@ import { useState } from 'react'
 import SetDesign from './components/SetDesign.jsx'
 import PracticeCalendar from './components/PracticeCalendar.jsx'
 import Benching from './components/Benching.jsx'
+import Attendance from './components/Attendance.jsx'
 import Roster from './components/Roster.jsx'
+import { useStore } from './store.jsx'
 
 const NAV = [
   {
@@ -35,6 +37,15 @@ const NAV = [
     ),
   },
   {
+    id: 'attendance', label: 'Attendance',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="5" y="4" width="14" height="17" rx="2" />
+        <path d="M9 4V2.5h6V4M9 12l2 2 4-4" />
+      </svg>
+    ),
+  },
+  {
     id: 'roster', label: 'Roster',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -45,8 +56,17 @@ const NAV = [
   },
 ]
 
+const SYNC_LABEL = {
+  connecting: { dot: 'bg-zinc-500 animate-pulse', text: 'Connecting…' },
+  synced: { dot: 'bg-emerald-500', text: 'Synced' },
+  saving: { dot: 'bg-amber-400 animate-pulse', text: 'Saving…' },
+  offline: { dot: 'bg-red-500', text: 'Offline — saved locally' },
+}
+
 export default function App() {
   const [tab, setTab] = useState('set-design')
+  const { syncStatus } = useStore()
+  const sync = SYNC_LABEL[syncStatus] ?? SYNC_LABEL.connecting
 
   return (
     <div className="h-full flex">
@@ -79,10 +99,11 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="mt-auto px-5 py-4 text-[11px] text-zinc-600">
-          Data is saved on this device.
-          <br />
-          Firebase sync coming next.
+        <div className="mt-auto px-5 py-4">
+          <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+            <span className={`w-2 h-2 rounded-full ${sync.dot}`} />
+            {sync.text}
+          </div>
         </div>
       </aside>
 
@@ -92,6 +113,7 @@ export default function App() {
           {tab === 'set-design' && <SetDesign />}
           {tab === 'calendar' && <PracticeCalendar />}
           {tab === 'benching' && <Benching />}
+          {tab === 'attendance' && <Attendance />}
           {tab === 'roster' && <Roster />}
         </div>
       </main>

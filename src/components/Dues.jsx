@@ -364,9 +364,29 @@ function CampaignsModal({ campaigns, onClose }) {
 }
 
 // Raw mirrored payments, like Zeffy's own Payments page but roster-aware.
+// Editors can fix any buyer's match inline — the correction is a saved link,
+// so it applies to every payment from that buyer.
 function PaymentsTable({ payments, matcher, roster }) {
+  const { state, setDues } = useStore()
+  const { canEdit } = useAuth()
   const [query, setQuery] = useState('')
+  const [editingKey, setEditingKey] = useState(null) // buyer key being relinked
   const memberName = (id) => roster.find((m) => m.id === id)?.name
+
+  const setLink = (key, memberId) => {
+    const next = { ...state.dues.contactLinks }
+    if (memberId) next[key] = memberId
+    else delete next[key] // back to automatic matching
+    setDues({ contactLinks: next })
+    setEditingKey(null)
+  }
+
+  const clearAllLinks = () => {
+    const n = Object.keys(state.dues.contactLinks || {}).length
+    if (!n) return
+    if (confirm(`Remove all ${n} manual buyer links and go back to pure automatic matching?`))
+      setDues({ contactLinks: {} })
+  }
 
   const q = query.toLowerCase()
   const visible = payments.filter((p) =>
@@ -381,14 +401,21 @@ function PaymentsTable({ payments, matcher, roster }) {
     <Card>
       <CardHeader
         title={`Payments (${visible.length})`}
-        subtitle="Read-only mirror of Zeffy, filtered to the included campaigns."
+        subtitle={canEdit
+          ? 'Mirror of Zeffy. Wrong match? Click the member badge to correct it — the fix sticks for all of that buyer’s payments.'
+          : 'Read-only mirror of Zeffy, filtered to the included campaigns.'}
         actions={
-          <input
-            className={`${inputCls} !w-56 !py-1.5`}
-            placeholder="Search buyer, member, campaign…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+          <div className="flex items-center gap-2">
+            {canEdit && Object.keys(state.dues.contactLinks || {}).length > 0 && (
+              <Button size="sm" variant="ghost" onClick={clearAllLinks}>Clear manual links</Button>
+            )}
+            <input
+              className={`${inputCls} !w-56 !py-1.5`}
+              placeholder="Search buyer, member, campaign…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
         }
       />
       <div className="px-5 pb-5 overflow-x-auto thin-scroll">
@@ -406,6 +433,8 @@ function PaymentsTable({ payments, matcher, roster }) {
           <tbody className="divide-y divide-zinc-100">
             {visible.map((p) => {
               const memberId = matcher(p)
+              const key = buyerKey(p)
+              const isLinked = !!state.dues.contactLinks?.[key]
               return (
                 <tr key={p.id}>
                   <td className="py-2 pr-3 text-zinc-500 whitespace-nowrap">{new Date(p.created).toLocaleDateString()}</td>
@@ -414,9 +443,31 @@ function PaymentsTable({ payments, matcher, roster }) {
                     {p.buyer_email && <span className="block text-[11px] font-normal text-zinc-400">{p.buyer_email}</span>}
                   </td>
                   <td className="py-2 pr-3 whitespace-nowrap">
-                    {memberId
-                      ? <Badge className="bg-emerald-100 text-emerald-700">{memberName(memberId)}</Badge>
-                      : <Badge className="bg-amber-100 text-amber-800">unmatched</Badge>}
+                    {editingKey === key ? (
+                      <select
+                        autoFocus
+                        className="px-2 py-1 text-xs bg-white border border-zinc-300 rounded-lg cursor-pointer"
+                        value={state.dues.contactLinks?.[key] ?? ''}
+                        onChange={(e) => setLink(key, e.target.value)}
+                        onBlur={() => setEditingKey(null)}
+                      >
+                        <option value="">— automatic —</option>
+                        {roster.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      </select>
+                    ) : (
+                      <button
+                        disabled={!canEdit}
+                        onClick={() => setEditingKey(key)}
+                        title={canEdit ? (isLinked ? 'Manually linked — click to change' : 'Click to correct this match') : undefined}
+                        className={canEdit ? 'cursor-pointer' : ''}
+                      >
+                        {memberId
+                          ? <Badge className={isLinked ? 'bg-violet-100 text-violet-700' : 'bg-emerald-100 text-emerald-700'}>
+                              {memberName(memberId)}{isLinked ? ' ✎' : ''}
+                            </Badge>
+                          : <Badge className="bg-amber-100 text-amber-800">unmatched</Badge>}
+                      </button>
+                    )}
                   </td>
                   <td className="py-2 pr-3 text-zinc-600">{p.description || '—'}</td>
                   <td className="py-2 pr-3 text-zinc-500">{(p.items ?? []).length}</td>
@@ -434,11 +485,16 @@ function PaymentsTable({ payments, matcher, roster }) {
   )
 }
 
-// Buyers whose payments couldn't be auto-matched (unknown, or ambiguous last name).
+// Buyers whose payments couldn't be auto-matched (unknown name, or a
+// first/last name shared by multiple members — e.g. the two Shreyas).
 function UnmatchedCard({ unmatched }) {
   const { state, setDues } = useStore()
+  const [picks, setPicks] = useState({}) // buyer key -> memberId (staged, not saved)
 
-  const link = (key, memberId) => {
+  // Deliberate two-step: choose, then click Link. (The old instant-linking
+  // dropdown could silently bind the wrong pair.)
+  const link = (key) => {
+    const memberId = picks[key]
     if (!memberId) return
     setDues({ contactLinks: { ...state.dues.contactLinks, [key]: memberId } })
   }
@@ -447,7 +503,7 @@ function UnmatchedCard({ unmatched }) {
     <Card className="mb-5">
       <CardHeader
         title={`Needs a match (${unmatched.length})`}
-        subtitle="Buyers I couldn't auto-match — the name doesn't match a member's full or (unique) last name. Link once; it sticks for all their payments."
+        subtitle="Buyers that couldn't be auto-matched (unknown name, or a name several members share). Link once; it sticks for all their payments and can be changed later in the Zeffy payments tab."
       />
       <ul className="px-5 pb-5 divide-y divide-zinc-100">
         {unmatched.map((u) => (
@@ -455,11 +511,18 @@ function UnmatchedCard({ unmatched }) {
             <span className="font-medium text-zinc-800">{u.name}</span>
             {u.email && <span className="text-xs text-zinc-400">{u.email}</span>}
             <Badge className="bg-zinc-100 text-zinc-600">{u.count} payment{u.count > 1 ? 's' : ''} · {cents(u.total)}</Badge>
-            <div className="ml-auto">
-              <Select className="!w-52 !py-1.5" defaultValue="" onChange={(e) => link(u.key, e.target.value)}>
+            <div className="ml-auto flex items-center gap-2">
+              <Select
+                className="!w-52 !py-1.5"
+                value={picks[u.key] ?? ''}
+                onChange={(e) => setPicks({ ...picks, [u.key]: e.target.value })}
+              >
                 <option value="">Link to member…</option>
                 {state.roster.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </Select>
+              <Button size="sm" variant="primary" disabled={!picks[u.key]} onClick={() => link(u.key)}>
+                Link
+              </Button>
             </div>
           </li>
         ))}

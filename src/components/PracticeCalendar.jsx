@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '../store.jsx'
+import { useAuth } from '../auth.jsx'
 import WeekGrid, { START_HOUR, END_HOUR } from './WeekGrid.jsx'
 import {
   weekStartISO, addDaysISO, dayIndexOfISO, fmtWeekRange, fmtDate, relativeDays,
@@ -16,6 +17,7 @@ const TIME_OPTS = timeOptions()
 
 export default function PracticeCalendar() {
   const { state, addPracticeBlock, updatePracticeBlock, removePracticeBlock } = useStore()
+  const { canEdit } = useAuth()
   const [weekISO, setWeekISO] = useState(weekStartISO())
   const [draft, setDraft] = useState(null) // {id?, day, startMin, endMin, segmentId}
 
@@ -38,7 +40,9 @@ export default function PracticeCalendar() {
       endMin: b.endMin,
       color: seg ? segColor(segIndex[seg.id]) : '#a1a1aa',
       title: seg?.name ?? 'Deleted segment',
-      onClick: () => setDraft({ id: b.id, day: dayIndexOfISO(b.date), startMin: b.startMin, endMin: b.endMin, segmentId: b.segmentId }),
+      onClick: canEdit
+        ? () => setDraft({ id: b.id, day: dayIndexOfISO(b.date), startMin: b.startMin, endMin: b.endMin, segmentId: b.segmentId })
+        : undefined,
     }
   })
 
@@ -56,7 +60,9 @@ export default function PracticeCalendar() {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-xl font-bold text-zinc-900 mb-1">Practice Calendar</h1>
-          <p className="text-sm text-zinc-500">Drag on the grid to schedule a segment run.</p>
+          <p className="text-sm text-zinc-500">
+            {canEdit ? 'Drag on the grid to schedule a segment run.' : 'What’s being practiced when.'}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, -7))}>‹</Button>
@@ -78,9 +84,10 @@ export default function PracticeCalendar() {
             <WeekGrid
               weekISO={weekISO}
               events={events}
-              onDragCreate={(day, startMin, endMin) =>
-                setDraft({ day, startMin, endMin, segmentId: state.segments[0]?.id ?? '' })
-              }
+              onDragCreate={canEdit
+                ? (day, startMin, endMin) =>
+                    setDraft({ day, startMin, endMin, segmentId: state.segments[0]?.id ?? '' })
+                : undefined}
             />
           </div>
         )}

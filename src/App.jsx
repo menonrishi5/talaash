@@ -5,6 +5,7 @@ import Benching from './components/Benching.jsx'
 import Attendance from './components/Attendance.jsx'
 import Roster from './components/Roster.jsx'
 import { useStore } from './store.jsx'
+import { useAuth } from './auth.jsx'
 
 const NAV = [
   {
@@ -66,6 +67,7 @@ const SYNC_LABEL = {
 export default function App() {
   const [tab, setTab] = useState('set-design')
   const { syncStatus } = useStore()
+  const { session, role, signOut } = useAuth()
   const sync = SYNC_LABEL[syncStatus] ?? SYNC_LABEL.connecting
 
   return (
@@ -99,10 +101,28 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="mt-auto px-5 py-4">
+        <div className="mt-auto px-5 py-4 space-y-2.5">
           <div className="flex items-center gap-2 text-[11px] text-zinc-500">
             <span className={`w-2 h-2 rounded-full ${sync.dot}`} />
             {sync.text}
+          </div>
+          <div className="border-t border-zinc-800 pt-2.5">
+            <div className="text-[11px] text-zinc-400 truncate" title={session?.user?.email}>
+              {session?.user?.email}
+            </div>
+            <div className="flex items-center justify-between mt-1">
+              <span className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                role === 'editor' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-zinc-800 text-zinc-400'
+              }`}>
+                {role}
+              </span>
+              <button
+                onClick={signOut}
+                className="text-[11px] text-zinc-500 hover:text-zinc-200 cursor-pointer"
+              >
+                Sign out
+              </button>
+            </div>
           </div>
         </div>
       </aside>

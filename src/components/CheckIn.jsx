@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { supabase, todayTeamISO, fmtTeamTime } from '../supabase.js'
+import { supabase, fmtTeamTime } from '../supabase.js'
 
 // Public check-in page (#/checkin) — what the QR code / Slack link opens.
 // Standalone: no StoreProvider, minimal chrome, phone-first layout.
@@ -20,17 +20,16 @@ export default function CheckIn() {
   useEffect(() => {
     ;(async () => {
       try {
-        const [{ data: sess, error: e1 }, { data: rosterRow, error: e2 }] = await Promise.all([
-          supabase.from('attendance_sessions').select('id, session_date').eq('session_date', todayTeamISO()).maybeSingle(),
-          supabase.from('app_state').select('data').eq('key', 'roster').maybeSingle(),
-        ])
-        if (e1 || e2) throw e1 || e2
-        if (!sess) {
+        // Login-free RPC: returns today's session (id only, no password) and
+        // the roster — the page can't read anything else.
+        const { data, error } = await supabase.rpc('get_checkin_info')
+        if (error) throw error
+        if (!data.session) {
           setPhase('none')
           return
         }
-        setSession(sess)
-        setRoster((rosterRow?.data ?? []).slice().sort((a, b) => a.name.localeCompare(b.name)))
+        setSession(data.session)
+        setRoster((data.roster ?? []).slice().sort((a, b) => a.name.localeCompare(b.name)))
         setPhase('form')
       } catch (e) {
         console.error(e)

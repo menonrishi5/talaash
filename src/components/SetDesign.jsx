@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { useStore } from '../store.jsx'
+import { useAuth } from '../auth.jsx'
 import { putFile, deleteFile, fileURL } from '../fileStore.js'
 import { uid, segColor, MIX_STATUSES, SIDES, sideLabel } from '../lib.js'
 import { Button, Card, CardHeader, Badge, Select, TextInput, EmptyState, Modal } from './ui.jsx'
@@ -45,6 +46,7 @@ const mixStatusInfo = (v) => MIX_STATUSES.find((s) => s.value === v) ?? MIX_STAT
 
 export default function SetDesign() {
   const { state, addSegment } = useStore()
+  const { canEdit } = useAuth()
   const [selectedId, setSelectedId] = useState(state.segments[0]?.id ?? null)
   const selected = state.segments.find((s) => s.id === selectedId) ?? state.segments[0] ?? null
 
@@ -62,7 +64,7 @@ export default function SetDesign() {
             Show lineup, forms, mixes, casting and stage traffic.
           </p>
         </div>
-        <Button variant="primary" onClick={addNew}>+ New segment</Button>
+        {canEdit && <Button variant="primary" onClick={addNew}>+ New segment</Button>}
       </div>
 
       {state.segments.length === 0 ? (
@@ -70,8 +72,10 @@ export default function SetDesign() {
           <EmptyState
             icon={<span className="text-lg">🎭</span>}
             title="No segments yet"
-            hint="Create your first segment to upload forms, attach a mix and cast members."
-            action={<Button variant="primary" onClick={addNew}>Create a segment</Button>}
+            hint={canEdit
+              ? 'Create your first segment to upload forms, attach a mix and cast members.'
+              : 'An editor can build the show lineup here.'}
+            action={canEdit ? <Button variant="primary" onClick={addNew}>Create a segment</Button> : null}
           />
         </Card>
       ) : (
@@ -86,6 +90,7 @@ export default function SetDesign() {
 
 function Lineup({ selectedId, onSelect }) {
   const { state, moveSegment } = useStore()
+  const { canEdit } = useAuth()
 
   return (
     <Card className="w-64 shrink-0 sticky top-6">
@@ -111,7 +116,7 @@ function Lineup({ selectedId, onSelect }) {
                     {i + 1} of {state.segments.length} · {seg.members.length} dancers · {st.label}
                   </div>
                 </div>
-                <div className={`flex flex-col ${seg.id === selectedId ? '' : 'opacity-0 group-hover:opacity-100'}`}>
+                <div className={`${canEdit ? 'flex' : 'hidden'} flex-col ${seg.id === selectedId ? '' : 'opacity-0 group-hover:opacity-100'}`}>
                   <button
                     className="text-[10px] leading-none px-1 py-0.5 hover:scale-125 transition-transform cursor-pointer disabled:opacity-20"
                     disabled={i === 0}
@@ -136,6 +141,7 @@ function Lineup({ selectedId, onSelect }) {
 
 function SegmentDetail({ segment }) {
   const { state, updateSegment, removeSegment } = useStore()
+  const { canEdit } = useAuth()
   const idx = state.segments.findIndex((s) => s.id === segment.id)
   const [renaming, setRenaming] = useState(false)
   const [showCast, setShowCast] = useState(false)
@@ -167,8 +173,12 @@ function SegmentDetail({ segment }) {
             <h2 className="text-lg font-bold text-zinc-900 flex-1 truncate">{segment.name}</h2>
           )}
           <Badge className="bg-zinc-100 text-zinc-600">#{idx + 1} in show</Badge>
-          <Button size="sm" variant="ghost" onClick={() => setRenaming(true)}>Rename</Button>
-          <Button size="sm" variant="danger" onClick={deleteSegment}>Delete</Button>
+          {canEdit && (
+            <>
+              <Button size="sm" variant="ghost" onClick={() => setRenaming(true)}>Rename</Button>
+              <Button size="sm" variant="danger" onClick={deleteSegment}>Delete</Button>
+            </>
+          )}
         </div>
       </Card>
 
@@ -189,6 +199,7 @@ function SegmentDetail({ segment }) {
 
 function FormsCard({ segment }) {
   const { updateSegment } = useStore()
+  const { canEdit } = useAuth()
   const url = fileURL(segment.pdf?.fileId)
 
   const upload = async (file) => {
@@ -210,10 +221,12 @@ function FormsCard({ segment }) {
         title="Forms (ArrangeUs PDF)"
         subtitle={segment.pdf ? segment.pdf.name : 'Export your forms from ArrangeUs as a PDF and upload it here.'}
         actions={
-          <div className="flex gap-2">
-            <UploadButton accept="application/pdf" label={segment.pdf ? 'Replace PDF' : 'Upload PDF'} onFile={upload} />
-            {segment.pdf && <Button size="sm" variant="ghost" className="text-red-500" onClick={remove}>Remove</Button>}
-          </div>
+          canEdit ? (
+            <div className="flex gap-2">
+              <UploadButton accept="application/pdf" label={segment.pdf ? 'Replace PDF' : 'Upload PDF'} onFile={upload} />
+              {segment.pdf && <Button size="sm" variant="ghost" className="text-red-500" onClick={remove}>Remove</Button>}
+            </div>
+          ) : null
         }
       />
       {segment.pdf ? (
@@ -248,6 +261,7 @@ function FormsCard({ segment }) {
 
 function MixCard({ segment }) {
   const { updateSegment } = useStore()
+  const { canEdit } = useAuth()
   const url = fileURL(segment.audio?.fileId)
   const status = mixStatusInfo(segment.mixStatus)
 
@@ -279,21 +293,23 @@ function MixCard({ segment }) {
             ? <audio controls src={url} className="w-full" />
             : <div className="text-sm text-zinc-400">Loading audio…</div>
         )}
-        <div className="flex items-center gap-2">
-          <UploadButton accept="audio/*" label={segment.audio ? 'Replace mix' : 'Upload mix'} onFile={upload} />
-          <Select
-            value={segment.mixStatus}
-            onChange={(e) => updateSegment(segment.id, { mixStatus: e.target.value })}
-            className="!w-auto"
-          >
-            {MIX_STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </Select>
-          {segment.audio && (
-            <Button size="sm" variant="ghost" className="text-red-500" onClick={remove}>Remove</Button>
-          )}
-        </div>
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            <UploadButton accept="audio/*" label={segment.audio ? 'Replace mix' : 'Upload mix'} onFile={upload} />
+            <Select
+              value={segment.mixStatus}
+              onChange={(e) => updateSegment(segment.id, { mixStatus: e.target.value })}
+              className="!w-auto"
+            >
+              {MIX_STATUSES.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </Select>
+            {segment.audio && (
+              <Button size="sm" variant="ghost" className="text-red-500" onClick={remove}>Remove</Button>
+            )}
+          </div>
+        )}
       </div>
     </Card>
   )
@@ -303,14 +319,16 @@ function MixCard({ segment }) {
 
 function NotesCard({ segment }) {
   const { updateSegment } = useStore()
+  const { canEdit } = useAuth()
   return (
     <Card>
       <CardHeader title="Notes" subtitle="Production details, people, ideas." />
       <div className="px-5 pb-5">
         <textarea
-          className="w-full h-32 px-3 py-2 text-sm bg-white border border-zinc-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-400/40 resize-y placeholder:text-zinc-400"
-          placeholder="e.g. Props enter with back row · lighting cue on the beat drop · Riya leads the front block…"
+          className="w-full h-32 px-3 py-2 text-sm bg-white border border-zinc-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-400/40 resize-y placeholder:text-zinc-400 read-only:bg-zinc-50 read-only:text-zinc-600"
+          placeholder={canEdit ? 'e.g. Props enter with back row · lighting cue on the beat drop · Riya leads the front block…' : 'No notes yet.'}
           value={segment.notes}
+          readOnly={!canEdit}
           onChange={(e) => updateSegment(segment.id, { notes: e.target.value })}
         />
       </div>
@@ -322,6 +340,7 @@ function NotesCard({ segment }) {
 
 function CastCard({ segment, idx, onOpenPicker }) {
   const { state, setMemberSide, toggleSegmentMember } = useStore()
+  const { canEdit } = useAuth()
   const prevSeg = state.segments[idx - 1] ?? null
   const nextSeg = state.segments[idx + 1] ?? null
 
@@ -360,7 +379,7 @@ function CastCard({ segment, idx, onOpenPicker }) {
             {warningCount > 0 && (
               <Badge className="bg-red-100 text-red-700">⚠ {warningCount} quick-change risk{warningCount > 1 ? 's' : ''}</Badge>
             )}
-            <Button size="sm" onClick={onOpenPicker}>Edit cast</Button>
+            {canEdit && <Button size="sm" onClick={onOpenPicker}>Edit cast</Button>}
           </div>
         }
       />
@@ -368,8 +387,8 @@ function CastCard({ segment, idx, onOpenPicker }) {
         <EmptyState
           icon={<span className="text-lg">🕺</span>}
           title="Nobody cast yet"
-          hint="Pick who dances this segment from the roster."
-          action={<Button variant="primary" onClick={onOpenPicker}>Select dancers</Button>}
+          hint={canEdit ? 'Pick who dances this segment from the roster.' : 'An editor can cast this segment.'}
+          action={canEdit ? <Button variant="primary" onClick={onOpenPicker}>Select dancers</Button> : null}
         />
       ) : (
         <div className="px-5 pb-5 overflow-x-auto thin-scroll">
@@ -401,20 +420,22 @@ function CastCard({ segment, idx, onOpenPicker }) {
                     </Badge>
                   </td>
                   <td className="py-2.5 pr-3">
-                    <SideSelect value={entry.enterSide} onChange={(v) => setMemberSide(segment.id, member.id, 'enterSide', v)} />
+                    <SideSelect disabled={!canEdit} value={entry.enterSide} onChange={(v) => setMemberSide(segment.id, member.id, 'enterSide', v)} />
                   </td>
                   <td className="py-2.5 pr-3">
-                    <SideSelect value={entry.exitSide} onChange={(v) => setMemberSide(segment.id, member.id, 'exitSide', v)} />
+                    <SideSelect disabled={!canEdit} value={entry.exitSide} onChange={(v) => setMemberSide(segment.id, member.id, 'exitSide', v)} />
                   </td>
                   <td className="py-2.5">
                     {warnings.length > 0 && (
                       <span className="text-red-600 text-xs" title={warnings.join('\n')}>⚠ {warnings.length}</span>
                     )}
-                    <button
-                      className="ml-2 text-zinc-300 hover:text-red-500 cursor-pointer text-xs"
-                      title="Remove from segment"
-                      onClick={() => toggleSegmentMember(segment.id, member.id)}
-                    >✕</button>
+                    {canEdit && (
+                      <button
+                        className="ml-2 text-zinc-300 hover:text-red-500 cursor-pointer text-xs"
+                        title="Remove from segment"
+                        onClick={() => toggleSegmentMember(segment.id, member.id)}
+                      >✕</button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -437,12 +458,13 @@ function CastCard({ segment, idx, onOpenPicker }) {
   )
 }
 
-function SideSelect({ value, onChange }) {
+function SideSelect({ value, onChange, disabled }) {
   return (
     <select
       value={value}
+      disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
-      className="px-2 py-1 text-xs bg-white border border-zinc-300 rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-zinc-400/40"
+      className="px-2 py-1 text-xs bg-white border border-zinc-300 rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-zinc-400/40 disabled:bg-zinc-50 disabled:cursor-default"
     >
       {SIDES.map((s) => (
         <option key={s.value} value={s.value}>{s.value === '' ? '—' : s.label}</option>

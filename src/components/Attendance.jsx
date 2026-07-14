@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { useStore } from '../store.jsx'
+import { useAuth } from '../auth.jsx'
 import { supabase, todayTeamISO, fmtTeamTime } from '../supabase.js'
 import { minToLabel, fmtDate } from '../lib.js'
 import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, inputCls } from './ui.jsx'
@@ -19,6 +20,7 @@ const timeOpts = []
 for (let m = 16 * 60; m <= 23 * 60; m += 15) timeOpts.push(m)
 
 export default function Attendance() {
+  const { canEdit } = useAuth()
   const todayISO = todayTeamISO()
   const [session, setSession] = useState(null) // today's session row, or null
   const [checkins, setCheckins] = useState([])
@@ -71,7 +73,7 @@ export default function Attendance() {
             Check-in link + rotating password per practice; fines compute on the server clock.
           </p>
         </div>
-        <Button size="sm" onClick={() => setPayModal(true)}>Record payment</Button>
+        {canEdit && <Button size="sm" onClick={() => setPayModal(true)}>Record payment</Button>}
       </div>
 
       {error && (
@@ -84,8 +86,14 @@ export default function Attendance() {
         <Card><div className="p-8 text-sm text-zinc-400">Loading…</div></Card>
       ) : session ? (
         <LiveSession session={session} checkins={checkins} refresh={refresh} />
-      ) : (
+      ) : canEdit ? (
         <StartSession todayISO={todayISO} onCreated={refresh} />
+      ) : (
+        <Card className="mb-5">
+          <div className="p-8 text-sm text-zinc-500 text-center">
+            No practice session is open today — an editor starts one when practice is on.
+          </div>
+        </Card>
       )}
 
       <Ledger />
@@ -189,6 +197,7 @@ function StartSession({ todayISO, onCreated }) {
 
 function LiveSession({ session, checkins, refresh }) {
   const { state } = useStore()
+  const { canEdit } = useAuth()
   const [qr, setQr] = useState(null)
   const url = checkInURL()
 
@@ -232,11 +241,11 @@ function LiveSession({ session, checkins, refresh }) {
             <Button size="sm" variant="ghost" onClick={() => window.open(url, '_blank')}>Open page</Button>
           </div>
           <div className="mt-4 w-full border-t border-zinc-100 pt-3 flex items-center justify-between">
-            <label className="flex items-center gap-2 text-sm text-zinc-700 cursor-pointer">
-              <input type="checkbox" checked={session.fines_active} onChange={(e) => setFines(e.target.checked)} />
+            <label className={`flex items-center gap-2 text-sm text-zinc-700 ${canEdit ? 'cursor-pointer' : ''}`}>
+              <input type="checkbox" disabled={!canEdit} checked={session.fines_active} onChange={(e) => setFines(e.target.checked)} />
               Fines active
             </label>
-            <Button size="sm" variant="ghost" className="text-red-500" onClick={endSession}>Delete session</Button>
+            {canEdit && <Button size="sm" variant="ghost" className="text-red-500" onClick={endSession}>Delete session</Button>}
           </div>
           <p className="text-[11px] text-zinc-400 mt-2 self-start text-left">
             Cutoff {minToLabel(session.cutoff_min)} · free until {minToLabel(session.cutoff_min + session.grace_min)} ·{' '}
@@ -280,11 +289,13 @@ function LiveSession({ session, checkins, refresh }) {
                       {Number(c.fine) > 0 ? <span className="text-red-600">{money(c.fine)}</span> : '—'}
                     </td>
                     <td className="py-2 text-right">
-                      <button
-                        className="text-zinc-300 hover:text-red-500 cursor-pointer text-xs"
-                        title="Remove check-in"
-                        onClick={() => removeCheckin(c)}
-                      >✕</button>
+                      {canEdit && (
+                        <button
+                          className="text-zinc-300 hover:text-red-500 cursor-pointer text-xs"
+                          title="Remove check-in"
+                          onClick={() => removeCheckin(c)}
+                        >✕</button>
+                      )}
                     </td>
                   </tr>
                 ))}

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '../store.jsx'
+import { useAuth } from '../auth.jsx'
 import WeekGrid from './WeekGrid.jsx'
 import {
   uid, weekStartISO, addDaysISO, fmtWeekRange, minToLabel, durationLabel,
@@ -17,6 +18,7 @@ const STATUS_META = {
 
 export default function Benching() {
   const { state } = useStore()
+  const { canEdit } = useAuth()
   const { benching } = state
   const [weekISO, setWeekISO] = useState(weekStartISO())
   const [importOpen, setImportOpen] = useState(false)
@@ -75,8 +77,12 @@ export default function Benching() {
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" onClick={() => setStatsOpen(true)}>Hour tracker</Button>
-          <Button size="sm" onClick={() => setImportOpen(true)}>Import sheet</Button>
-          <Button size="sm" variant="primary" onClick={() => setSlotModal('new')}>+ Add slot</Button>
+          {canEdit && (
+            <>
+              <Button size="sm" onClick={() => setImportOpen(true)}>Import sheet</Button>
+              <Button size="sm" variant="primary" onClick={() => setSlotModal('new')}>+ Add slot</Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -89,7 +95,7 @@ export default function Benching() {
           ) : (
             <LocationSelect />
           )}
-          <Button size="sm" variant="ghost" onClick={() => setLocOpen(true)}>Manage locations</Button>
+          {canEdit && <Button size="sm" variant="ghost" onClick={() => setLocOpen(true)}>Manage locations</Button>}
           {benching.activeLocation && (
             <Badge className="bg-zinc-900 text-white ml-auto">📍 {benching.activeLocation}</Badge>
           )}
@@ -142,13 +148,15 @@ export default function Benching() {
           <EmptyState
             icon={<span className="text-lg">🪑</span>}
             title="No benching schedule yet"
-            hint="Import your sheet (Day, Start, End, Member, Reserve) or add slots manually. The schedule repeats weekly."
-            action={
+            hint={canEdit
+              ? 'Import your sheet (Day, Start, End, Member, Reserve) or add slots manually. The schedule repeats weekly.'
+              : 'An editor can import the weekly benching sheet here.'}
+            action={canEdit ? (
               <div className="flex gap-2">
                 <Button variant="primary" onClick={() => setImportOpen(true)}>Import sheet</Button>
                 <Button onClick={() => setSlotModal('new')}>Add a slot</Button>
               </div>
-            }
+            ) : null}
           />
         ) : (
           <div className="p-3">
@@ -173,9 +181,11 @@ export default function Benching() {
 
 function LocationSelect() {
   const { state, setBenching } = useStore()
+  const { canEdit } = useAuth()
   return (
     <Select
-      className="!w-56"
+      disabled={!canEdit}
+      className="!w-56 disabled:bg-zinc-50"
       value={state.benching.activeLocation ?? ''}
       onChange={(e) => setBenching({ activeLocation: e.target.value || null })}
     >
@@ -285,6 +295,7 @@ function ImportModal({ onClose }) {
 // Attendance + editing for one slot in a given week.
 function SlotModal({ slotId, weekISO, onClose }) {
   const { state, setSlotStatus, addTemplateSlot, updateTemplateSlot, removeTemplateSlot } = useStore()
+  const { canEdit } = useAuth()
   const slot = state.benching.template.find((s) => s.id === slotId) ?? null
   const isNew = !slot
   const ov = slot ? state.benching.weeks[weekISO]?.[slot.id] : null
@@ -338,6 +349,7 @@ function SlotModal({ slotId, weekISO, onClose }) {
             </p>
           </div>
 
+          {canEdit && (<>
           <p className="text-xs font-medium text-zinc-500 mb-2">Attendance for this week</p>
           <div className="space-y-2">
             <Button variant="success" className="w-full" onClick={() => mark('primary')}>
@@ -383,6 +395,7 @@ function SlotModal({ slotId, weekISO, onClose }) {
               Delete slot
             </Button>
           </div>
+          </>)}
         </>
       )}
 
@@ -432,6 +445,7 @@ function SlotModal({ slotId, weekISO, onClose }) {
 // Roster-wide benching hour totals across every confirmed week.
 function StatsModal({ onClose }) {
   const { state, setBenching } = useStore()
+  const { canEdit } = useAuth()
   const threshold = state.benching.threshold ?? 15
 
   const stats = useMemo(() => {
@@ -468,7 +482,8 @@ function StatsModal({ onClose }) {
         <input
           type="number"
           min="0"
-          className="w-20 px-2 py-1 text-sm border border-zinc-300 rounded-lg"
+          disabled={!canEdit}
+          className="w-20 px-2 py-1 text-sm border border-zinc-300 rounded-lg disabled:bg-zinc-50"
           value={threshold}
           onChange={(e) => setBenching({ threshold: Number(e.target.value) || 0 })}
         />

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { uid } from './lib.js'
 import { supabase } from './supabase.js'
+import { useAuth } from './auth.jsx'
 
 // App state lives in Supabase (table app_state, one JSON doc per domain) so
 // every device sees the same data. localStorage is kept as a fast local cache
@@ -44,9 +45,12 @@ function load() {
 const StoreCtx = createContext(null)
 
 export function StoreProvider({ children }) {
+  const { canEdit } = useAuth()
   const [state, setState] = useState(load)
   const [syncStatus, setSyncStatus] = useState('connecting') // connecting | synced | saving | offline
   const loadedRef = useRef(false)
+  const canEditRef = useRef(canEdit)
+  canEditRef.current = canEdit
   const lastSynced = useRef({}) // domain key -> JSON string last written to/read from server
   const saveTimer = useRef(null)
 
@@ -60,11 +64,15 @@ export function StoreProvider({ children }) {
         if (error) throw error
         if (cancelled) return
         if (data.length === 0) {
-          const local = load()
-          const rows = DOMAIN_KEYS.map((k) => ({ key: k, data: local[k] }))
-          const { error: upErr } = await supabase.from('app_state').upsert(rows)
-          if (upErr) throw upErr
-          DOMAIN_KEYS.forEach((k) => (lastSynced.current[k] = JSON.stringify(local[k])))
+          // First ever run: seed the server from this browser (editors only —
+          // viewers can't write, and shouldn't define the team's data anyway).
+          if (canEditRef.current) {
+            const local = load()
+            const rows = DOMAIN_KEYS.map((k) => ({ key: k, data: local[k] }))
+            const { error: upErr } = await supabase.from('app_state').upsert(rows)
+            if (upErr) throw upErr
+            DOMAIN_KEYS.forEach((k) => (lastSynced.current[k] = JSON.stringify(local[k])))
+          }
         } else {
           const merged = { ...DEFAULT_STATE }
           for (const row of data) if (DOMAIN_KEYS.includes(row.key)) merged[row.key] = row.data
@@ -86,9 +94,10 @@ export function StoreProvider({ children }) {
   }, [])
 
   // Persist: localStorage immediately, server debounced (only changed domains).
+  // Viewers never push — the database would reject it anyway.
   useEffect(() => {
     localStorage.setItem(KEY, JSON.stringify(state))
-    if (!loadedRef.current) return
+    if (!loadedRef.current || !canEditRef.current) return
     const changed = DOMAIN_KEYS.filter(
       (k) => JSON.stringify(state[k]) !== lastSynced.current[k],
     )
@@ -111,7 +120,7 @@ export function StoreProvider({ children }) {
         setSyncStatus('offline')
       }
     }, 800)
-  }, [state])
+  }, [state, canEdit])
 
   const api = useMemo(() => {
     const set = setState

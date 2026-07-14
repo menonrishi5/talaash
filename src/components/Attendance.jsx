@@ -96,6 +96,7 @@ export default function Attendance() {
         </Card>
       )}
 
+      {canEdit && <ZeffyFines />}
       <Ledger />
       <History todayISO={todayISO} />
 
@@ -317,6 +318,96 @@ function LiveSession({ session, checkins, refresh }) {
         </div>
       </Card>
     </div>
+  )
+}
+
+// ---- Zeffy fine payments awaiting confirmation ----
+// Zeffy payments that look like fine payments and haven't been recorded yet.
+// Editors confirm each one; external_id keeps them from double-counting.
+
+function ZeffyFines() {
+  const { state } = useStore()
+  const [candidates, setCandidates] = useState([])
+  const [picks, setPicks] = useState({}) // zeffy id -> memberId
+
+  const norm = (s) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+
+  const load = async () => {
+    const [{ data: zeffy }, { data: recorded }] = await Promise.all([
+      supabase.from('zeffy_payments').select('*').eq('status', 'succeeded'),
+      supabase.from('payments').select('external_id').not('external_id', 'is', null),
+    ])
+    if (!zeffy) return
+    const seen = new Set((recorded ?? []).map((r) => r.external_id))
+    const fines = zeffy.filter(
+      (p) => !seen.has(p.id) && JSON.stringify(p.raw ?? '').toLowerCase().includes('fine'),
+    )
+    setCandidates(fines)
+    const prefill = {}
+    for (const p of fines) {
+      const match = state.roster.find(
+        (m) => norm(m.name) === norm(`${p.buyer_first ?? ''} ${p.buyer_last ?? ''}`),
+      )
+      if (match) prefill[p.id] = match.id
+    }
+    setPicks(prefill)
+  }
+
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.roster])
+
+  const record = async (p) => {
+    const member = state.roster.find((m) => m.id === picks[p.id])
+    if (!member) return
+    const { error } = await supabase.from('payments').insert({
+      member_id: member.id,
+      member_name: member.name,
+      amount: p.amount_cents / 100,
+      source: 'zeffy',
+      external_id: p.id,
+      note: p.description || 'Zeffy fine payment',
+    })
+    if (error) alert('Could not record: ' + error.message)
+    load()
+  }
+
+  if (candidates.length === 0) return null
+
+  return (
+    <Card className="mb-5">
+      <CardHeader
+        title={`Zeffy fine payments to confirm (${candidates.length})`}
+        subtitle='Payments from Zeffy mentioning "fine" that aren&apos;t in the ledger yet. Confirm who each one belongs to.'
+      />
+      <ul className="px-5 pb-5 divide-y divide-zinc-100">
+        {candidates.map((p) => (
+          <li key={p.id} className="py-2 flex items-center gap-3 text-sm flex-wrap">
+            <span className="font-medium text-zinc-800">
+              {`${p.buyer_first ?? ''} ${p.buyer_last ?? ''}`.trim() || p.buyer_email || 'Unknown'}
+            </span>
+            <Badge className="bg-zinc-100 text-zinc-600">{money(p.amount_cents / 100)}</Badge>
+            <span className="text-xs text-zinc-400">
+              {new Date(p.created).toLocaleDateString()} · {p.description || 'no campaign'}
+            </span>
+            <div className="ml-auto flex items-center gap-2">
+              <Select
+                className="!w-44 !py-1.5"
+                value={picks[p.id] ?? ''}
+                onChange={(e) => setPicks({ ...picks, [p.id]: e.target.value })}
+              >
+                <option value="">Who is this?</option>
+                {state.roster.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </Select>
+              <Button size="sm" variant="success" disabled={!picks[p.id]} onClick={() => record(p)}>
+                Record
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
   )
 }
 

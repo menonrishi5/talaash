@@ -8,7 +8,7 @@ import { useAuth } from './auth.jsx'
 // for instant first paint; the server copy wins on load.
 
 const KEY = 'talaash-hq-v1'
-const DOMAIN_KEYS = ['roster', 'segments', 'practiceBlocks', 'benching']
+const DOMAIN_KEYS = ['roster', 'segments', 'practiceBlocks', 'benching', 'dues']
 
 const DEFAULT_STATE = {
   roster: [], // {id, name}
@@ -25,6 +25,13 @@ const DEFAULT_STATE = {
     // { [weekISO]: { [slotId]: { status: 'primary'|'reserve'|'cover'|'uncovered', coverMemberId } } }
     weeks: {},
   },
+  dues: {
+    categories: [], // {rateId, name, amountCents, order}
+    // per-member manual cell states: { [memberId]: { [rateId]: 'paid' | 'exempt' } }
+    overrides: {},
+    // zeffy buyer (email or "first last", lowercased) -> roster member id
+    contactLinks: {},
+  },
 }
 
 function load() {
@@ -36,6 +43,7 @@ function load() {
       ...DEFAULT_STATE,
       ...parsed,
       benching: { ...DEFAULT_STATE.benching, ...(parsed.benching || {}) },
+      dues: { ...DEFAULT_STATE.dues, ...(parsed.dues || {}) },
     }
   } catch {
     return DEFAULT_STATE
@@ -77,6 +85,7 @@ export function StoreProvider({ children }) {
           const merged = { ...DEFAULT_STATE }
           for (const row of data) if (DOMAIN_KEYS.includes(row.key)) merged[row.key] = row.data
           merged.benching = { ...DEFAULT_STATE.benching, ...(merged.benching || {}) }
+          merged.dues = { ...DEFAULT_STATE.dues, ...(merged.dues || {}) }
           DOMAIN_KEYS.forEach((k) => (lastSynced.current[k] = JSON.stringify(merged[k])))
           setState(merged)
         }
@@ -252,6 +261,11 @@ export function StoreProvider({ children }) {
       },
       removePracticeBlock(id) {
         set((s) => ({ ...s, practiceBlocks: s.practiceBlocks.filter((b) => b.id !== id) }))
+      },
+
+      // ---- dues ----
+      setDues(patch) {
+        set((s) => ({ ...s, dues: { ...s.dues, ...patch } }))
       },
 
       // ---- benching ----

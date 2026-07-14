@@ -3,6 +3,7 @@ import SetDesign from './components/SetDesign.jsx'
 import PracticeCalendar from './components/PracticeCalendar.jsx'
 import Benching from './components/Benching.jsx'
 import Attendance from './components/Attendance.jsx'
+import Dues from './components/Dues.jsx'
 import Roster from './components/Roster.jsx'
 import { useStore } from './store.jsx'
 import { useAuth } from './auth.jsx'
@@ -43,6 +44,15 @@ const NAV = [
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <rect x="5" y="4" width="14" height="17" rx="2" />
         <path d="M9 4V2.5h6V4M9 12l2 2 4-4" />
+      </svg>
+    ),
+  },
+  {
+    id: 'dues', label: 'Dues & Payments',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 6.5v11M15 8.8c-.6-.9-1.7-1.4-3-1.4-1.8 0-3 .9-3 2.3 0 2.9 6 1.6 6 4.5 0 1.4-1.3 2.3-3 2.3-1.3 0-2.4-.5-3-1.4" />
       </svg>
     ),
   },
@@ -134,6 +144,7 @@ export default function App() {
           {tab === 'calendar' && <PracticeCalendar />}
           {tab === 'benching' && <Benching />}
           {tab === 'attendance' && <Attendance />}
+          {tab === 'dues' && <Dues />}
           {tab === 'roster' && <Roster />}
         </div>
       </main>

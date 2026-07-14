@@ -3,6 +3,7 @@ import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { putFile, deleteFile, fileURL } from '../fileStore.js'
 import { uid, segColor, MIX_STATUSES, SIDES, sideLabel } from '../lib.js'
+import { isActive } from '../matching.js'
 import { Button, Card, CardHeader, Badge, Select, TextInput, EmptyState, Modal } from './ui.jsx'
 
 function UploadButton({ accept, label, onFile }) {
@@ -406,7 +407,12 @@ function CastCard({ segment, idx, onOpenPicker }) {
             <tbody className="divide-y divide-zinc-100">
               {rows.map(({ entry, member, prevEntry, nextEntry, warnings, total }) => (
                 <tr key={member.id} className="align-top">
-                  <td className="py-2.5 pr-3 font-medium text-zinc-800 whitespace-nowrap">{member.name}</td>
+                  <td className="py-2.5 pr-3 font-medium text-zinc-800 whitespace-nowrap">
+                    {member.name}
+                    {!isActive(member) && (
+                      <Badge className="bg-amber-100 text-amber-800 ml-1.5" title="This member is inactive — consider recasting">inactive</Badge>
+                    )}
+                  </td>
                   <td className="py-2.5 pr-3">
                     <div className="flex flex-wrap gap-1">
                       {prevEntry && <Badge className="bg-violet-100 text-violet-700">← in previous</Badge>}
@@ -477,7 +483,10 @@ function CastPicker({ segment, onClose }) {
   const { state, toggleSegmentMember } = useStore()
   const [query, setQuery] = useState('')
   const inSeg = new Set(segment.members.map((m) => m.memberId))
+  // Inactive members can't be newly cast, but stay listed if already in the
+  // segment so they can be removed.
   const visible = state.roster
+    .filter((m) => isActive(m) || inSeg.has(m.id))
     .filter((m) => m.name.toLowerCase().includes(query.toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name))
 
@@ -506,7 +515,7 @@ function CastPicker({ segment, onClose }) {
                   <span className={`w-4 h-4 rounded-md flex items-center justify-center text-[10px] ${active ? 'bg-white text-zinc-900' : 'border border-zinc-300'}`}>
                     {active ? '✓' : ''}
                   </span>
-                  <span className="truncate">{m.name}</span>
+                  <span className="truncate">{m.name}{!isActive(m) ? ' (inactive)' : ''}</span>
                 </button>
               )
             })}

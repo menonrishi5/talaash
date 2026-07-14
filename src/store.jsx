@@ -140,9 +140,15 @@ export function StoreProvider({ children }) {
 
       // ---- roster ----
       addMember(name) {
-        const member = { id: uid(), name: name.trim() }
+        const member = { id: uid(), name: name.trim(), active: true }
         set((s) => ({ ...s, roster: [...s.roster, member] }))
         return member
+      },
+      setMemberActive(id, active) {
+        set((s) => ({
+          ...s,
+          roster: s.roster.map((m) => (m.id === id ? { ...m, active } : m)),
+        }))
       },
       renameMember(id, name) {
         set((s) => ({ ...s, roster: s.roster.map((m) => (m.id === id ? { ...m, name } : m)) }))
@@ -177,7 +183,7 @@ export function StoreProvider({ children }) {
           if (found) {
             map[key] = found.id
           } else {
-            const member = { id: uid(), name: name.trim() }
+            const member = { id: uid(), name: name.trim(), active: true }
             additions.push(member)
             map[key] = member.id
           }

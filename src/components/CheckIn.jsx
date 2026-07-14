@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, fmtTeamTime } from '../supabase.js'
+import { isActive } from '../matching.js'
 
 // Public check-in page (#/checkin) — what the QR code / Slack link opens.
 // Standalone: no StoreProvider, minimal chrome, phone-first layout.
@@ -29,7 +30,9 @@ export default function CheckIn() {
           return
         }
         setSession(data.session)
-        setRoster((data.roster ?? []).slice().sort((a, b) => a.name.localeCompare(b.name)))
+        setRoster(
+          (data.roster ?? []).filter(isActive).sort((a, b) => a.name.localeCompare(b.name)),
+        )
         setPhase('form')
       } catch (e) {
         console.error(e)

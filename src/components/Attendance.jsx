@@ -4,6 +4,7 @@ import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { supabase, todayTeamISO, fmtTeamTime } from '../supabase.js'
 import { minToLabel, fmtDate } from '../lib.js'
+import { isActive, buildMatcher } from '../matching.js'
 import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, inputCls } from './ui.jsx'
 
 const money = (n) => `$${Number(n) % 1 ? Number(n).toFixed(2) : Number(n)}`
@@ -207,7 +208,8 @@ function LiveSession({ session, checkins, refresh }) {
   }, [url])
 
   const checkedIds = new Set(checkins.map((c) => c.member_id))
-  const missing = state.roster.filter((m) => !checkedIds.has(m.id))
+  const activeRoster = state.roster.filter(isActive)
+  const missing = activeRoster.filter((m) => !checkedIds.has(m.id))
 
   const setFines = async (on) => {
     await supabase.from('attendance_sessions').update({ fines_active: on }).eq('id', session.id)
@@ -258,7 +260,7 @@ function LiveSession({ session, checkins, refresh }) {
       {/* Check-ins */}
       <Card className="xl:col-span-2">
         <CardHeader
-          title={`Checked in (${checkins.length}/${state.roster.length})`}
+          title={`Checked in (${checkins.length}/${activeRoster.length})`}
           subtitle={totalFines > 0 ? `${money(totalFines)} in fines so far today` : 'No fines so far today'}
           actions={<Button size="sm" variant="ghost" onClick={refresh}>↻ Refresh</Button>}
         />
@@ -330,8 +332,6 @@ function ZeffyFines() {
   const [candidates, setCandidates] = useState([])
   const [picks, setPicks] = useState({}) // zeffy id -> memberId
 
-  const norm = (s) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
-
   const load = async () => {
     const [{ data: zeffy }, { data: recorded }] = await Promise.all([
       supabase.from('zeffy_payments').select('*').eq('status', 'succeeded'),
@@ -343,12 +343,12 @@ function ZeffyFines() {
       (p) => !seen.has(p.id) && JSON.stringify(p.raw ?? '').toLowerCase().includes('fine'),
     )
     setCandidates(fines)
+    // Prefill using the shared matcher (full name, then unique last name).
+    const match = buildMatcher(state.roster, state.dues.contactLinks)
     const prefill = {}
     for (const p of fines) {
-      const match = state.roster.find(
-        (m) => norm(m.name) === norm(`${p.buyer_first ?? ''} ${p.buyer_last ?? ''}`),
-      )
-      if (match) prefill[p.id] = match.id
+      const memberId = match(p)
+      if (memberId) prefill[p.id] = memberId
     }
     setPicks(prefill)
   }

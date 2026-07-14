@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { supabase } from '../supabase.js'
+import { isActive } from '../matching.js'
 import { Button, Card, CardHeader, TextInput, EmptyState, Badge, Select } from './ui.jsx'
 
 export default function Roster() {
-  const { state, addMember, renameMember, removeMember } = useStore()
+  const { state, addMember, renameMember, removeMember, setMemberActive } = useStore()
   const { canEdit } = useAuth()
   const [name, setName] = useState('')
   const [editing, setEditing] = useState(null) // member id
@@ -33,7 +34,10 @@ export default function Roster() {
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
         <Card>
-          <CardHeader title={`Members (${state.roster.length})`} />
+          <CardHeader
+            title={`Members (${state.roster.length})`}
+            subtitle={`${state.roster.filter(isActive).length} active · ${state.roster.filter((m) => !isActive(m)).length} inactive. Inactive members can't be placed on benching, segments, or check in.`}
+          />
           <div className="px-5 pb-5">
             {canEdit && (
               <div className="flex gap-2 mb-4">
@@ -58,7 +62,7 @@ export default function Roster() {
             ) : (
               <ul className="divide-y divide-zinc-100">
                 {state.roster.map((m) => (
-                  <li key={m.id} className="flex items-center gap-3 py-2.5">
+                  <li key={m.id} className={`flex items-center gap-3 py-2.5 ${isActive(m) ? '' : 'opacity-60'}`}>
                     <div className="w-8 h-8 rounded-full bg-zinc-200 text-zinc-600 flex items-center justify-center text-xs font-semibold shrink-0">
                       {m.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}
                     </div>
@@ -75,11 +79,20 @@ export default function Roster() {
                     ) : (
                       <span className="flex-1 text-sm font-medium text-zinc-800">{m.name}</span>
                     )}
+                    {!isActive(m) && <Badge className="bg-amber-100 text-amber-800">inactive</Badge>}
                     {segCount[m.id] ? (
                       <Badge className="bg-zinc-100 text-zinc-600">{segCount[m.id]} segment{segCount[m.id] > 1 ? 's' : ''}</Badge>
                     ) : null}
                     {canEdit && (
                       <>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setMemberActive(m.id, !isActive(m))}
+                          title={isActive(m) ? 'Mark inactive — removed from pickers, kept in history' : 'Mark active again'}
+                        >
+                          {isActive(m) ? 'Deactivate' : 'Activate'}
+                        </Button>
                         <Button size="sm" variant="ghost" onClick={() => setEditing(m.id)}>Rename</Button>
                         <Button
                           size="sm"

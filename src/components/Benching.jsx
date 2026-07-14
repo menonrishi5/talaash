@@ -6,6 +6,7 @@ import {
   uid, weekStartISO, addDaysISO, fmtWeekRange, minToLabel, durationLabel,
   DAY_NAMES, parseBenchingSheet, toISODate,
 } from '../lib.js'
+import { isActive } from '../matching.js'
 import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, inputCls } from './ui.jsx'
 
 const STATUS_META = {
@@ -118,6 +119,30 @@ export default function Benching() {
           </ul>
         </div>
       )}
+      {(() => {
+        const inactiveSlots = benching.template.filter((s) => {
+          const m = state.roster.find((r) => r.id === s.memberId)
+          const res = state.roster.find((r) => r.id === s.reserveId)
+          return (m && !isActive(m)) || (res && !isActive(res))
+        })
+        return inactiveSlots.length > 0 ? (
+          <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 px-5 py-3">
+            <p className="text-xs text-amber-800">
+              <span className="font-semibold">{inactiveSlots.length} slot{inactiveSlots.length > 1 ? 's' : ''} assigned to an inactive member</span> — {' '}
+              {inactiveSlots.map((s, i) => (
+                <span key={s.id}>
+                  {i > 0 && ', '}
+                  <button className="underline cursor-pointer" onClick={() => setSlotModal(s.id)}>
+                    {DAY_NAMES[s.day]} {minToLabel(s.startMin)}
+                  </button>
+                </span>
+              ))}
+              . Reassign when you get a chance.
+            </p>
+          </div>
+        ) : null
+      })()}
+
       {pastPending.length > 0 && (
         <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 px-5 py-3">
           <p className="text-xs text-amber-800">
@@ -364,7 +389,7 @@ function SlotModal({ slotId, weekISO, onClose }) {
               <Select value={coverId} onChange={(e) => setCoverId(e.target.value)}>
                 <option value="">Neither — pick who covered…</option>
                 {state.roster
-                  .filter((m) => m.id !== slot.memberId && m.id !== slot.reserveId)
+                  .filter((m) => m.id !== slot.memberId && m.id !== slot.reserveId && isActive(m))
                   .map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </Select>
               <Button disabled={!coverId} onClick={() => mark('cover', coverId)}>Confirm</Button>
@@ -421,13 +446,18 @@ function SlotModal({ slotId, weekISO, onClose }) {
           <Field label="Member">
             <Select value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })}>
               <option value="">— select —</option>
-              {state.roster.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              {state.roster
+                .filter((m) => isActive(m) || m.id === form.memberId)
+                .map((m) => <option key={m.id} value={m.id}>{m.name}{!isActive(m) ? ' (inactive)' : ''}</option>)}
             </Select>
           </Field>
           <Field label="Reserve (backup)">
             <Select value={form.reserveId} onChange={(e) => setForm({ ...form, reserveId: e.target.value })}>
               <option value="">none</option>
-              {state.roster.filter((m) => m.id !== form.memberId).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              {state.roster
+                .filter((m) => m.id !== form.memberId)
+                .filter((m) => isActive(m) || m.id === form.reserveId)
+                .map((m) => <option key={m.id} value={m.id}>{m.name}{!isActive(m) ? ' (inactive)' : ''}</option>)}
             </Select>
           </Field>
           <div className="flex justify-end gap-2 mt-2">

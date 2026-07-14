@@ -24,6 +24,8 @@ export default function Dues() {
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState(null)
   const [setupOpen, setSetupOpen] = useState(false)
+  const [campaignsOpen, setCampaignsOpen] = useState(false)
+  const [tab, setTab] = useState('grid') // grid | payments | donations
 
   const loadPayments = async () => {
     const { data, error } = await supabase
@@ -54,9 +56,29 @@ export default function Dues() {
     }
   }
 
-  const succeeded = useMemo(
+  const allSucceeded = useMemo(
     () => (payments ?? []).filter((p) => p.status === 'succeeded' && p.refund_status !== 'full'),
     [payments],
+  )
+
+  // Distinct campaigns across all synced payments; excluded ones (e.g. an
+  // archived "Talaash 6.0 Dues") drop out of the grid, donations, and
+  // category discovery entirely.
+  const campaigns = useMemo(() => {
+    const map = new Map()
+    for (const p of allSucceeded) {
+      const id = p.campaign_id ?? 'none'
+      const e = map.get(id) ?? { id, title: p.description || 'No campaign', count: 0 }
+      e.count += 1
+      map.set(id, e)
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count)
+  }, [allSucceeded])
+
+  const excluded = dues.excludedCampaigns || {}
+  const succeeded = useMemo(
+    () => allSucceeded.filter((p) => !excluded[p.campaign_id ?? 'none']),
+    [allSucceeded, excluded],
   )
 
   const matcher = useMemo(
@@ -150,11 +172,33 @@ export default function Dues() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" onClick={() => setCampaignsOpen(true)}>
+            Campaigns ({campaigns.length - campaigns.filter((c) => excluded[c.id]).length}/{campaigns.length})
+          </Button>
           {canEdit && <Button size="sm" onClick={() => setSetupOpen(true)}>Fee categories</Button>}
           <Button size="sm" variant="primary" disabled={syncing} onClick={sync}>
             {syncing ? 'Syncing…' : '↻ Sync Zeffy'}
           </Button>
         </div>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className="flex gap-1.5 mb-5">
+        {[
+          ['grid', "Who's paid"],
+          ['payments', `Zeffy payments (${succeeded.length})`],
+          ['donations', `Donations (${donations.length})`],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer ${
+              tab === id ? 'bg-zinc-900 text-white' : 'bg-white border border-zinc-200 text-zinc-600 hover:border-zinc-400'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {syncMsg && (
@@ -167,9 +211,25 @@ export default function Dues() {
         </div>
       )}
 
-      {canEdit && unmatched.length > 0 && <UnmatchedCard unmatched={unmatched} />}
+      {tab === 'payments' && <PaymentsTable payments={succeeded} matcher={matcher} roster={roster} />}
 
-      {categories.length === 0 ? (
+      {tab === 'donations' && (
+        donations.length > 0 ? (
+          <DonationsCard donations={donations} />
+        ) : (
+          <Card>
+            <EmptyState
+              icon={<span className="text-lg">💝</span>}
+              title="No donations found"
+              hint="Donation line items from non-archived campaigns will show up here after a sync."
+            />
+          </Card>
+        )
+      )}
+
+      {tab === 'grid' && canEdit && unmatched.length > 0 && <UnmatchedCard unmatched={unmatched} />}
+
+      {tab !== 'grid' ? null : categories.length === 0 ? (
         <Card className="mb-5">
           <EmptyState
             icon={<span className="text-lg">💸</span>}
@@ -256,10 +316,121 @@ export default function Dues() {
         </Card>
       )}
 
-      {donations.length > 0 && <DonationsCard donations={donations} />}
-
       {setupOpen && <CategoriesModal payments={succeeded} onClose={() => setSetupOpen(false)} />}
+      {campaignsOpen && <CampaignsModal campaigns={campaigns} onClose={() => setCampaignsOpen(false)} />}
     </div>
+  )
+}
+
+// Include/exclude whole Zeffy campaigns (e.g. archive last year's dues).
+function CampaignsModal({ campaigns, onClose }) {
+  const { state, setDues } = useStore()
+  const { canEdit } = useAuth()
+  const excluded = state.dues.excludedCampaigns || {}
+
+  const toggle = (id) => {
+    if (!canEdit) return
+    const next = { ...excluded }
+    if (next[id]) delete next[id]
+    else next[id] = true
+    setDues({ excludedCampaigns: next })
+  }
+
+  return (
+    <Modal title="Zeffy campaigns" onClose={onClose}>
+      <p className="text-xs text-zinc-500 mb-3">
+        Unchecked campaigns are ignored everywhere — the paid grid, donations, and category
+        discovery. Uncheck old seasons (e.g. Talaash 6.0 Dues) to isolate the current membership.
+      </p>
+      <ul className="divide-y divide-zinc-100">
+        {campaigns.map((c) => (
+          <li key={c.id} className="py-2 flex items-center gap-3 text-sm">
+            <input
+              type="checkbox"
+              disabled={!canEdit}
+              checked={!excluded[c.id]}
+              onChange={() => toggle(c.id)}
+            />
+            <span className="flex-1 text-zinc-800">{c.title}</span>
+            <Badge className="bg-zinc-100 text-zinc-600">{c.count} payments</Badge>
+          </li>
+        ))}
+        {campaigns.length === 0 && (
+          <li className="py-2 text-sm text-zinc-400 italic">Nothing synced yet.</li>
+        )}
+      </ul>
+    </Modal>
+  )
+}
+
+// Raw mirrored payments, like Zeffy's own Payments page but roster-aware.
+function PaymentsTable({ payments, matcher, roster }) {
+  const [query, setQuery] = useState('')
+  const memberName = (id) => roster.find((m) => m.id === id)?.name
+
+  const q = query.toLowerCase()
+  const visible = payments.filter((p) =>
+    !q ||
+    buyerName(p).toLowerCase().includes(q) ||
+    (p.buyer_email ?? '').toLowerCase().includes(q) ||
+    (p.description ?? '').toLowerCase().includes(q) ||
+    (memberName(matcher(p)) ?? '').toLowerCase().includes(q),
+  )
+
+  return (
+    <Card>
+      <CardHeader
+        title={`Payments (${visible.length})`}
+        subtitle="Read-only mirror of Zeffy, filtered to the included campaigns."
+        actions={
+          <input
+            className={`${inputCls} !w-56 !py-1.5`}
+            placeholder="Search buyer, member, campaign…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        }
+      />
+      <div className="px-5 pb-5 overflow-x-auto thin-scroll">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-400">
+              <th className="pb-2 pr-3 font-medium">Date</th>
+              <th className="pb-2 pr-3 font-medium">Buyer</th>
+              <th className="pb-2 pr-3 font-medium">Matched member</th>
+              <th className="pb-2 pr-3 font-medium">Campaign</th>
+              <th className="pb-2 pr-3 font-medium">Items</th>
+              <th className="pb-2 font-medium text-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100">
+            {visible.map((p) => {
+              const memberId = matcher(p)
+              return (
+                <tr key={p.id}>
+                  <td className="py-2 pr-3 text-zinc-500 whitespace-nowrap">{new Date(p.created).toLocaleDateString()}</td>
+                  <td className="py-2 pr-3 font-medium text-zinc-800 whitespace-nowrap">
+                    {buyerName(p)}
+                    {p.buyer_email && <span className="block text-[11px] font-normal text-zinc-400">{p.buyer_email}</span>}
+                  </td>
+                  <td className="py-2 pr-3 whitespace-nowrap">
+                    {memberId
+                      ? <Badge className="bg-emerald-100 text-emerald-700">{memberName(memberId)}</Badge>
+                      : <Badge className="bg-amber-100 text-amber-800">unmatched</Badge>}
+                  </td>
+                  <td className="py-2 pr-3 text-zinc-600">{p.description || '—'}</td>
+                  <td className="py-2 pr-3 text-zinc-500">{(p.items ?? []).length}</td>
+                  <td className="py-2 text-right font-semibold text-zinc-800 whitespace-nowrap">{cents(p.amount_cents)}</td>
+                </tr>
+              )
+            })}
+            {visible.length === 0 && (
+              <tr><td colSpan="6" className="py-6 text-center text-sm text-zinc-400 italic">No payments match.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   )
 }
 
@@ -397,6 +568,21 @@ function CategoriesModal({ payments, onClose }) {
     }])
   }
 
+  // Include every discovered rate with a placeholder name to rename —
+  // Zeffy's API doesn't expose rate names, so amounts + campaign is the
+  // best automatic label available.
+  const autoFill = () => {
+    setRows(rows.map((r) =>
+      r.rateId
+        ? {
+            ...r,
+            include: true,
+            name: r.name || `${cents(r.typicalAmount)} — ${(r.campaigns || 'fee').split(',')[0].trim()}`,
+          }
+        : r,
+    ))
+  }
+
   const save = () => {
     const categories = rows
       .filter((r) => r.include && r.name.trim())
@@ -444,7 +630,12 @@ function CategoriesModal({ payments, onClose }) {
         ))}
       </div>
       <div className="flex justify-between items-center mt-4">
-        <Button size="sm" variant="ghost" onClick={addManual}>+ Manual category</Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={addManual}>+ Manual category</Button>
+          {rows.some((r) => r.rateId && !r.include) && (
+            <Button size="sm" variant="ghost" onClick={autoFill}>✨ Auto-fill all rates</Button>
+          )}
+        </div>
         <div className="flex gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={save}>Save categories</Button>

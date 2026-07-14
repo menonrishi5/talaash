@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { putFile, deleteFile, fileURL } from '../fileStore.js'
 import { uid, segColor, MIX_STATUSES, SIDES, sideLabel } from '../lib.js'
 import { isActive } from '../matching.js'
+import { readFormPages, detectMemberSides, pageToStage } from '../formReader.js'
 import { Button, Card, CardHeader, Badge, Select, TextInput, EmptyState, Modal } from './ui.jsx'
 
 function UploadButton({ accept, label, onFile }) {
@@ -342,6 +343,7 @@ function NotesCard({ segment }) {
 function CastCard({ segment, idx, onOpenPicker }) {
   const { state, setMemberSide, toggleSegmentMember } = useStore()
   const { canEdit } = useAuth()
+  const [detectOpen, setDetectOpen] = useState(false)
   const prevSeg = state.segments[idx - 1] ?? null
   const nextSeg = state.segments[idx + 1] ?? null
 
@@ -379,6 +381,9 @@ function CastCard({ segment, idx, onOpenPicker }) {
           <div className="flex items-center gap-2">
             {warningCount > 0 && (
               <Badge className="bg-red-100 text-red-700">⚠ {warningCount} quick-change risk{warningCount > 1 ? 's' : ''}</Badge>
+            )}
+            {canEdit && segment.pdf && rows.length > 0 && (
+              <Button size="sm" onClick={() => setDetectOpen(true)}>✨ Auto-detect sides</Button>
             )}
             {canEdit && <Button size="sm" onClick={onOpenPicker}>Edit cast</Button>}
           </div>
@@ -460,7 +465,129 @@ function CastCard({ segment, idx, onOpenPicker }) {
           )}
         </div>
       )}
+      {detectOpen && <SideDetectModal segment={segment} onClose={() => setDetectOpen(false)} />}
     </Card>
+  )
+}
+
+// Reads the forms PDF and proposes enter/exit sides from each dancer's
+// position on the first and last page. Suggestions only — nothing is applied
+// until confirmed, and every value stays editable afterward.
+function SideDetectModal({ segment, onClose }) {
+  const { state, setMemberSide, setSettings } = useStore()
+  const [status, setStatus] = useState('reading') // reading | ready | empty | error
+  const [detected, setDetected] = useState([])
+  const [numPages, setNumPages] = useState(0)
+  const leftIsStageLeft = state.settings.pdfLeftIsStageLeft !== false
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        const pages = await readFormPages(fileURL(segment.pdf.fileId))
+        if (!alive) return
+        setNumPages(pages.numPages)
+        if (pages.first.length === 0 && pages.last.length === 0) {
+          setStatus('empty')
+          return
+        }
+        const cast = segment.members
+          .map((mm) => state.roster.find((r) => r.id === mm.memberId))
+          .filter(Boolean)
+        setDetected(detectMemberSides(pages, cast))
+        setStatus('ready')
+      } catch (e) {
+        console.error(e)
+        if (alive) setStatus('error')
+      }
+    })()
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [segment.pdf?.fileId])
+
+  const matched = detected.filter((d) => d.enterPage || d.exitPage)
+  const unmatched = detected.filter((d) => !d.enterPage && !d.exitPage)
+
+  const apply = () => {
+    for (const d of matched) {
+      if (d.enterPage) setMemberSide(segment.id, d.memberId, 'enterSide', pageToStage(d.enterPage, leftIsStageLeft))
+      if (d.exitPage) setMemberSide(segment.id, d.memberId, 'exitSide', pageToStage(d.exitPage, leftIsStageLeft))
+    }
+    onClose()
+  }
+
+  return (
+    <Modal title={`Auto-detect sides — ${segment.name}`} onClose={onClose} wide>
+      {status === 'reading' && <p className="text-sm text-zinc-400">Reading the forms PDF…</p>}
+      {status === 'error' && (
+        <p className="text-sm text-red-600">Couldn't read that PDF — try re-uploading it, or set sides manually.</p>
+      )}
+      {status === 'empty' && (
+        <p className="text-sm text-zinc-600">
+          This PDF has no readable text — it's exported as images, so names can't be located
+          automatically. Sides stay manual for this one. (If ArrangeUs offers a text-based PDF
+          export option, that one would work.)
+        </p>
+      )}
+      {status === 'ready' && (
+        <>
+          <p className="text-xs text-zinc-500 mb-2">
+            Positions read from page 1 (enter) and page {numPages} (exit), split into stage thirds.
+            Review, adjust the orientation if sides look mirrored, then apply. Everything stays
+            editable in the cast table afterward.
+          </p>
+          <label className="flex items-center gap-2 text-xs text-zinc-600 mb-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={leftIsStageLeft}
+              onChange={(e) => setSettings({ pdfLeftIsStageLeft: e.target.checked })}
+            />
+            Left side of the PDF page is the dancers' Stage Left (uncheck if your charts are drawn
+            from the audience's view)
+          </label>
+          {matched.length === 0 ? (
+            <p className="text-sm text-zinc-600">
+              The PDF has text, but none of it matches this segment's cast names — are the names on
+              the forms different from the roster names?
+            </p>
+          ) : (
+            <table className="w-full text-sm mb-3">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-400">
+                  <th className="pb-1.5 pr-3 font-medium">Dancer</th>
+                  <th className="pb-1.5 pr-3 font-medium">Enters from</th>
+                  <th className="pb-1.5 font-medium">Exits to</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {matched.map((d) => (
+                  <tr key={d.memberId}>
+                    <td className="py-1.5 pr-3 font-medium text-zinc-800">{d.name}</td>
+                    <td className="py-1.5 pr-3 text-zinc-600">
+                      {d.enterPage ? sideLabel(pageToStage(d.enterPage, leftIsStageLeft)) : <span className="text-zinc-300">not found on page 1</span>}
+                    </td>
+                    <td className="py-1.5 text-zinc-600">
+                      {d.exitPage ? sideLabel(pageToStage(d.exitPage, leftIsStageLeft)) : <span className="text-zinc-300">not found on last page</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {unmatched.length > 0 && (
+            <p className="text-[11px] text-zinc-400 mb-3">
+              Not found in the PDF: {unmatched.map((d) => d.name).join(', ')} — set theirs manually.
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" disabled={matched.length === 0} onClick={apply}>
+              Apply {matched.length ? `to ${matched.length} dancer${matched.length > 1 ? 's' : ''}` : ''}
+            </Button>
+          </div>
+        </>
+      )}
+    </Modal>
   )
 }
 

@@ -5,6 +5,7 @@ import { supabase } from '../supabase.js'
 import { uid } from '../lib.js'
 import { buildMatcher, buyerKey, buyerName, isActive } from '../matching.js'
 import { Button, Card, CardHeader, Modal, Badge, Select, EmptyState, inputCls } from './ui.jsx'
+import VenmoTab from './Venmo.jsx'
 
 // Dues tracker driven by the Zeffy payment mirror — the app version of the
 // "Roster Actually Paid" sheet. Checkmarks come from payment line items
@@ -205,6 +206,7 @@ function DuesAdmin() {
           ['grid', "Who's paid"],
           ['payments', `Zeffy payments (${succeeded.length})`],
           ['donations', `Donations (${donations.length})`],
+          ['venmo', 'Venmo (out)'],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -227,6 +229,8 @@ function DuesAdmin() {
           {syncMsg}
         </div>
       )}
+
+      {tab === 'venmo' && <VenmoTab />}
 
       {tab === 'payments' && <PaymentsTable payments={succeeded} matcher={matcher} roster={roster} />}
 

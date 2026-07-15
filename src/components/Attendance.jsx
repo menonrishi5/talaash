@@ -9,9 +9,15 @@ import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, Empty
 
 const money = (n) => `$${Number(n) % 1 ? Number(n).toFixed(2) : Number(n)}`
 
-const WORDS = ['tiger', 'garba', 'bolly', 'dhoom', 'jalwa', 'mirchi', 'desi', 'tashan', 'bhangra', 'chakde', 'nachle', 'thumka']
-const genPassword = () =>
-  `${WORDS[Math.floor(Math.random() * WORDS.length)]}${Math.floor(10 + Math.random() * 90)}`
+const WORDS = [
+  'tiger', 'garba', 'bolly', 'dhoom', 'jalwa', 'mirchi', 'desi', 'tashan',
+  'bhangra', 'chakde', 'nachle', 'thumka', 'raaga', 'dholak', 'sitar', 'mehfil',
+  'jhoom', 'masti', 'rangla', 'sapna', 'josh', 'lehar',
+]
+const word = () => WORDS[Math.floor(Math.random() * WORDS.length)]
+// Two words + 2 digits: still announceable ("tiger-jhoom-47") but far more
+// than the old ~1k space, so it can't be guessed/scripted from home.
+const genPassword = () => `${word()}-${word()}-${Math.floor(10 + Math.random() * 90)}`
 
 function checkInURL() {
   return `${window.location.origin}${window.location.pathname}#/checkin`
@@ -146,6 +152,15 @@ function AttendanceAdmin() {
         .eq('session_date', todayISO)
         .maybeSingle()
       if (e1) throw e1
+      // Password lives in the editor-only secrets table; attach it for display.
+      if (sess) {
+        const { data: secret } = await supabase
+          .from('session_secrets')
+          .select('password')
+          .eq('session_id', sess.id)
+          .maybeSingle()
+        sess.password = secret?.password ?? ''
+      }
       setSession(sess)
       if (sess) {
         const { data: rows, error: e2 } = await supabase
@@ -231,9 +246,20 @@ function StartSession({ todayISO, onCreated }) {
 
   const create = async () => {
     setBusy(true)
-    const { error } = await supabase
+    const { password, ...sessionFields } = form
+    // Session row (team-readable) and its password (editor-only) are stored
+    // separately so members can't read today's code from the API.
+    const { data: sess, error } = await supabase
       .from('attendance_sessions')
-      .insert({ session_date: todayISO, ...form })
+      .insert({ session_date: todayISO, ...sessionFields })
+      .select('id')
+      .single()
+    if (!error && sess) {
+      const { error: e2 } = await supabase
+        .from('session_secrets')
+        .insert({ session_id: sess.id, password })
+      if (e2) { setBusy(false); alert('Could not save the password: ' + e2.message); return }
+    }
     setBusy(false)
     if (error) {
       console.error(error)

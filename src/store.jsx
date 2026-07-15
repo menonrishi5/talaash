@@ -37,6 +37,8 @@ const DEFAULT_STATE = {
     pdfLeftIsStageLeft: true,
     // Unaccepted benching slots pass to the reserve this many hours before start.
     benchingAcceptDeadlineHours: 12,
+    // Slack channel id for the weekly benching digest (bot must be in it).
+    slackDigestChannel: '',
   },
 }
 

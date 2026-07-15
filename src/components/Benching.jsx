@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
-import { supabase } from '../supabase.js'
+import { supabase, SUPABASE_URL } from '../supabase.js'
 import WeekGrid from './WeekGrid.jsx'
 import {
   uid, weekStartISO, addDaysISO, fmtWeekRange, minToLabel, durationLabel,
@@ -100,6 +100,8 @@ export default function Benching() {
       {memberId && (
         <MyBenching responses={responses} onChanged={loadResponses} />
       )}
+
+      <CalendarSubscribe />
 
       {/* Location */}
       <Card className="mb-5">
@@ -203,6 +205,8 @@ export default function Benching() {
           </div>
         )}
       </Card>
+
+      {canEdit && <NotificationSettings />}
 
       {importOpen && <ImportModal onClose={() => setImportOpen(false)} />}
       {locOpen && <LocationsModal onClose={() => setLocOpen(false)} />}
@@ -323,6 +327,106 @@ function MyBenching({ responses, onChanged }) {
           )
         })}
       </ul>
+    </Card>
+  )
+}
+
+// Personal calendar subscription — practice blocks + this member's benching
+// slots, as a webcal feed for Google/Apple Calendar. Any signed-in member.
+function CalendarSubscribe() {
+  const { session } = useAuth()
+  const [token, setToken] = useState(null)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!session) return
+    supabase.rpc('my_calendar_token').then(({ data }) => setToken(data ?? null))
+  }, [session])
+
+  if (!token) return null
+  const base = `${SUPABASE_URL}/functions/v1/calendar?token=${token}`
+  const webcal = base.replace(/^https?:\/\//, 'webcal://')
+
+  return (
+    <Card className="mb-5">
+      <CardHeader
+        title="Subscribe to your calendar"
+        subtitle="Practices and your benching slots, auto-updating in Google or Apple Calendar."
+      />
+      <div className="px-5 pb-5 flex items-center gap-2 flex-wrap">
+        <code className="flex-1 min-w-64 text-xs bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 truncate" title={base}>
+          {base}
+        </code>
+        <Button size="sm" onClick={() => { navigator.clipboard.writeText(base); setCopied(true); setTimeout(() => setCopied(false), 2000) }}>
+          {copied ? 'Copied!' : 'Copy link'}
+        </Button>
+        <Button size="sm" variant="primary" onClick={() => window.open(webcal, '_blank')}>Add to calendar</Button>
+      </div>
+      <p className="px-5 pb-4 -mt-2 text-[11px] text-zinc-400">
+        This link is personal to you — don't share it. In Google Calendar use “Other calendars → From URL”.
+      </p>
+    </Card>
+  )
+}
+
+// Editor-only: weekly digest channel + a log of Slack notifications that
+// couldn't be delivered (usually an app email that doesn't match Slack).
+function NotificationSettings() {
+  const { state, setSettings } = useStore()
+  const [channel, setChannel] = useState(state.settings?.slackDigestChannel ?? '')
+  const [misses, setMisses] = useState([])
+
+  useEffect(() => {
+    supabase
+      .from('notification_log')
+      .select('*')
+      .neq('detail', 'sent')
+      .order('sent_at', { ascending: false })
+      .limit(20)
+      .then(({ data }) => setMisses(data ?? []))
+  }, [])
+
+  return (
+    <Card className="mb-5">
+      <CardHeader
+        title="Notifications"
+        subtitle="Slack reminders for benching. Set the channel for the Monday digest; check below for anyone the bot couldn't reach."
+      />
+      <div className="px-5 pb-5">
+        <div className="flex items-end gap-2 mb-4 flex-wrap">
+          <label className="flex-1 min-w-56">
+            <span className="block text-xs font-medium text-zinc-500 mb-1">Weekly digest Slack channel ID</span>
+            <input
+              className={inputCls}
+              placeholder="e.g. C0123ABCD (invite the bot to it first)"
+              value={channel}
+              onChange={(e) => setChannel(e.target.value)}
+            />
+          </label>
+          <Button variant="primary" onClick={() => setSettings({ slackDigestChannel: channel.trim() })}>Save</Button>
+        </div>
+        {misses.length > 0 ? (
+          <>
+            <p className="text-[11px] uppercase tracking-wide text-zinc-400 font-medium mb-1.5">
+              Recent undelivered notifications
+            </p>
+            <ul className="text-xs text-zinc-600 space-y-1">
+              {misses.map((m) => (
+                <li key={m.id} className="flex gap-2">
+                  <span className="text-zinc-400">{new Date(m.sent_at).toLocaleDateString()}</span>
+                  <span className="font-medium">{m.kind}</span>
+                  <span className="text-red-600">{m.detail}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-[11px] text-zinc-400 mt-2">
+              Usually means that member's app email doesn't match their Slack email, or their account isn't linked to a roster member.
+            </p>
+          </>
+        ) : (
+          <p className="text-xs text-zinc-400 italic">No delivery problems logged.</p>
+        )}
+      </div>
     </Card>
   )
 }

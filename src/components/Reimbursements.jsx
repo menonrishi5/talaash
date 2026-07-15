@@ -3,10 +3,23 @@ import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { supabase } from '../supabase.js'
 import { uid } from '../lib.js'
-import { putFile, fileURL } from '../fileStore.js'
+import { putReceipt, receiptURL } from '../fileStore.js'
 import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, inputCls } from './ui.jsx'
 
 const cents = (c) => `$${(c / 100) % 1 ? (c / 100).toFixed(2) : c / 100}`
+
+// Receipts are private; fetch a short-lived signed URL only when opened.
+function ReceiptLink({ id, className }) {
+  const open = async (e) => {
+    e.preventDefault()
+    const url = await receiptURL(id)
+    if (url) window.open(url, '_blank', 'noopener')
+    else alert('Could not open the receipt.')
+  }
+  return (
+    <a href="#" onClick={open} className={className ?? 'text-xs text-zinc-500 underline'}>receipt</a>
+  )
+}
 const CATEGORIES = ['Props', 'Costumes', 'Food', 'Travel', 'Production', 'Competition', 'Other']
 
 const STATUS_BADGE = {
@@ -149,11 +162,7 @@ function Row({ r, memberName, children }) {
           </span>
         )}
       </div>
-      {r.receipt_file_id && (
-        <a href={fileURL(r.receipt_file_id)} target="_blank" rel="noreferrer" className="text-xs text-zinc-500 underline">
-          receipt
-        </a>
-      )}
+      {r.receipt_file_id && <ReceiptLink id={r.receipt_file_id} />}
       <Badge className={STATUS_BADGE[r.status]}>{r.status}</Badge>
       {children}
     </li>
@@ -175,7 +184,7 @@ function SubmitCard({ onSubmitted }) {
       let receiptId = null
       if (file) {
         receiptId = `receipt-${uid()}`
-        await putFile(receiptId, file)
+        await putReceipt(receiptId, file)
       }
       const { error } = await supabase.from('reimbursements').insert({
         profile_id: session.user.id,
@@ -274,7 +283,7 @@ function DecideModal({ r, memberName, onClose }) {
       <p className="text-sm text-zinc-600 mb-1">{r.description}</p>
       <p className="text-xs text-zinc-400 mb-4">
         {r.category ?? 'no category'}{r.purchase_date ? ` · bought ${r.purchase_date}` : ''}
-        {r.receipt_file_id && <> · <a className="underline" href={fileURL(r.receipt_file_id)} target="_blank" rel="noreferrer">receipt</a></>}
+        {r.receipt_file_id && <> · <ReceiptLink id={r.receipt_file_id} className="underline" /></>}
       </p>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Approve amount ($)">

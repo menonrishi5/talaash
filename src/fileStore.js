@@ -24,3 +24,26 @@ export async function deleteFile(id) {
     console.error('deleteFile failed', e)
   }
 }
+
+// ---- receipts (private bucket) ----
+// Receipts can contain names/addresses/card digits, so they live in a private
+// bucket. Reads go through short-lived signed URLs, gated by RLS to the
+// uploader and editors.
+
+export async function putReceipt(id, blob) {
+  const { error } = await supabase.storage
+    .from('receipts')
+    .upload(id, blob, { upsert: true, contentType: blob.type || 'application/octet-stream' })
+  if (error) throw error
+  return id
+}
+
+export async function receiptURL(id) {
+  if (!id) return null
+  const { data, error } = await supabase.storage.from('receipts').createSignedUrl(id, 600)
+  if (error) {
+    console.error('receiptURL failed', error)
+    return null
+  }
+  return data.signedUrl
+}

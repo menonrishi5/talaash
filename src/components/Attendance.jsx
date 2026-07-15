@@ -320,13 +320,27 @@ function LiveSession({ session, checkins, refresh }) {
   const activeRoster = state.roster.filter(isActive)
   const missing = activeRoster.filter((m) => !checkedIds.has(m.id))
 
+  const ended = !!session.ended_at
+
   const setFines = async (on) => {
     await supabase.from('attendance_sessions').update({ fines_active: on }).eq('id', session.id)
     refresh()
   }
 
+  // End = close check-in, keep everything. Fines recorded so far stand.
   const endSession = async () => {
-    if (!confirm('Delete today\'s session? All of today\'s check-ins and fines go with it.')) return
+    if (!confirm('End today\'s check-in? Fines recorded so far stand, and nobody else can check in. (You can reopen if needed.)')) return
+    await supabase.from('attendance_sessions').update({ ended_at: new Date().toISOString() }).eq('id', session.id)
+    refresh()
+  }
+
+  const reopenSession = async () => {
+    await supabase.from('attendance_sessions').update({ ended_at: null }).eq('id', session.id)
+    refresh()
+  }
+
+  const deleteSession = async () => {
+    if (!confirm('Delete today\'s session ENTIRELY? All of today\'s check-ins and fines go with it. To just close check-in, use End session instead.')) return
     await supabase.from('attendance_sessions').delete().eq('id', session.id)
     refresh()
   }
@@ -345,19 +359,35 @@ function LiveSession({ session, checkins, refresh }) {
       <Card>
         <CardHeader title="Today's check-in" subtitle={fmtDate(session.session_date, { weekday: 'long', month: 'short', day: 'numeric' })} />
         <div className="px-5 pb-5 flex flex-col items-center text-center">
-          {qr && <img src={qr} alt="Check-in QR code" className="w-48 h-48 rounded-xl border border-zinc-200" />}
-          <div className="mt-3 text-2xl font-black tracking-widest text-zinc-900 uppercase">{session.password}</div>
-          <p className="text-[11px] text-zinc-400 mb-3">announce this at practice — it changes daily</p>
-          <div className="flex gap-2 flex-wrap justify-center">
-            <Button size="sm" onClick={() => navigator.clipboard.writeText(url)}>Copy link</Button>
-            <Button size="sm" variant="ghost" onClick={() => window.open(url, '_blank')}>Open page</Button>
-          </div>
+          {ended ? (
+            <>
+              <p className="text-4xl mt-4 mb-2">🏁</p>
+              <p className="font-semibold text-zinc-800">Check-in closed</p>
+              <p className="text-xs text-zinc-500 mb-4">
+                ended at {fmtTeamTime(session.ended_at)} — fines recorded today stand
+              </p>
+              {canEdit && (
+                <Button size="sm" onClick={reopenSession}>Reopen check-in</Button>
+              )}
+            </>
+          ) : (
+            <>
+              {qr && <img src={qr} alt="Check-in QR code" className="w-48 h-48 rounded-xl border border-zinc-200" />}
+              <div className="mt-3 text-2xl font-black tracking-widest text-zinc-900 uppercase">{session.password}</div>
+              <p className="text-[11px] text-zinc-400 mb-3">announce this at practice — it changes daily</p>
+              <div className="flex gap-2 flex-wrap justify-center">
+                <Button size="sm" onClick={() => navigator.clipboard.writeText(url)}>Copy link</Button>
+                <Button size="sm" variant="ghost" onClick={() => window.open(url, '_blank')}>Open page</Button>
+                {canEdit && <Button size="sm" variant="primary" onClick={endSession}>🏁 End session</Button>}
+              </div>
+            </>
+          )}
           <div className="mt-4 w-full border-t border-zinc-100 pt-3 flex items-center justify-between">
             <label className={`flex items-center gap-2 text-sm text-zinc-700 ${canEdit ? 'cursor-pointer' : ''}`}>
-              <input type="checkbox" disabled={!canEdit} checked={session.fines_active} onChange={(e) => setFines(e.target.checked)} />
+              <input type="checkbox" disabled={!canEdit || ended} checked={session.fines_active} onChange={(e) => setFines(e.target.checked)} />
               Fines active
             </label>
-            {canEdit && <Button size="sm" variant="ghost" className="text-red-500" onClick={endSession}>Delete session</Button>}
+            {canEdit && <Button size="sm" variant="ghost" className="text-red-500" onClick={deleteSession}>Delete session</Button>}
           </div>
           <p className="text-[11px] text-zinc-400 mt-2 self-start text-left">
             Cutoff {minToLabel(session.cutoff_min)} · free until {minToLabel(session.cutoff_min + session.grace_min)} ·{' '}

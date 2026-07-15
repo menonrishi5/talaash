@@ -37,14 +37,25 @@ function DuesAdmin() {
   const [tab, setTab] = useState('grid') // grid | payments | donations
 
   const [reimbs, setReimbs] = useState([])
+  const [finesDue, setFinesDue] = useState({}) // memberId -> outstanding fine cents
 
   const loadPayments = async () => {
-    const [{ data, error }, { data: rb }] = await Promise.all([
+    const [{ data, error }, { data: rb }, { data: fines }, { data: finePays }] = await Promise.all([
       supabase.from('zeffy_payments').select('*').order('created', { ascending: false }),
       supabase.from('reimbursements').select('member_id,status,dues_credit_cents').in('status', ['approved', 'paid']),
+      supabase.from('checkins').select('member_id,fine'),
+      supabase.from('payments').select('member_id,amount'),
     ])
     if (!error) setPayments(data)
     if (rb) setReimbs(rb)
+    // Outstanding attendance fines fold into what each member owes.
+    const due = {}
+    for (const c of fines ?? []) due[c.member_id] = (due[c.member_id] || 0) + Math.round(Number(c.fine) * 100)
+    for (const p of finePays ?? []) {
+      if (p.member_id) due[p.member_id] = (due[p.member_id] || 0) - Math.round(Number(p.amount) * 100)
+    }
+    for (const k of Object.keys(due)) if (due[k] <= 0) delete due[k]
+    setFinesDue(due)
   }
 
   useEffect(() => {
@@ -177,7 +188,8 @@ function DuesAdmin() {
 
   const owedGross = (memberId) =>
     categories.reduce((sum, c) => (cellState(memberId, c) === 'unpaid' ? sum + c.amountCents : sum), 0)
-  const owedNet = (memberId) => Math.max(0, owedGross(memberId) - (creditsByMember[memberId] || 0))
+  const owedNet = (memberId) =>
+    Math.max(0, owedGross(memberId) + (finesDue[memberId] || 0) - (creditsByMember[memberId] || 0))
   const totalOwed = roster.reduce((n, m) => n + owedNet(m.id), 0)
 
   return (
@@ -271,8 +283,8 @@ function DuesAdmin() {
           <CardHeader
             title="Who's paid what"
             subtitle={canEdit
-              ? `Click a cell to override: auto → paid (manual) → exempt. Team outstanding: ${cents(totalOwed)}.`
-              : `Team outstanding: ${cents(totalOwed)}.`}
+              ? `Click a cell to override: auto → paid (manual) → exempt. Team outstanding (dues + fines): ${cents(totalOwed)}.`
+              : `Team outstanding (dues + fines): ${cents(totalOwed)}.`}
           />
           <div className="px-5 pb-5 overflow-x-auto thin-scroll">
             <table className="text-sm border-separate border-spacing-0">
@@ -285,6 +297,7 @@ function DuesAdmin() {
                       <div className="text-zinc-300 normal-case">{cents(c.amountCents)}</div>
                     </th>
                   ))}
+                  <th className="text-center text-[11px] uppercase tracking-wide text-zinc-400 font-medium pb-2 px-2">Fines</th>
                   <th className="text-right text-[11px] uppercase tracking-wide text-zinc-400 font-medium pb-2 pl-4">Owed</th>
                 </tr>
               </thead>
@@ -320,10 +333,18 @@ function DuesAdmin() {
                           </td>
                         )
                       })}
-                      <td className={`text-right pl-4 py-1.5 font-semibold border-t border-zinc-100 whitespace-nowrap ${net > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      <td className="text-center px-2 py-1.5 border-t border-zinc-100 whitespace-nowrap">
+                        {finesDue[m.id]
+                          ? <span className="text-xs font-semibold text-amber-700" title="Outstanding attendance fines (fined minus payments)">{cents(finesDue[m.id])}</span>
+                          : <span className="text-zinc-200 text-xs">—</span>}
+                      </td>
+                      <td
+                        className={`text-right pl-4 py-1.5 font-semibold border-t border-zinc-100 whitespace-nowrap ${net > 0 ? 'text-red-600' : 'text-emerald-600'}`}
+                        title={`${cents(gross)} dues${finesDue[m.id] ? ` + ${cents(finesDue[m.id])} fines` : ''}${credit ? ` − ${cents(credit)} credits` : ''}`}
+                      >
                         {net > 0 ? cents(net) : '✓'}
                         {credit > 0 && (
-                          <span className="block text-[10px] font-normal text-sky-600" title={`${cents(gross)} owed − ${cents(credit)} donation credit`}>
+                          <span className="block text-[10px] font-normal text-sky-600">
                             −{cents(credit)} credit
                           </span>
                         )}
@@ -391,17 +412,17 @@ function PaymentsTable({ payments, matcher, roster }) {
   const { state, setDues } = useStore()
   const { canEdit } = useAuth()
   const [query, setQuery] = useState('')
-  const [editingKey, setEditingKey] = useState(null) // buyer key being relinked
+  const [relink, setRelink] = useState(null) // {key, buyer, memberId}
   const memberName = (id) => roster.find((m) => m.id === id)?.name
 
-  const setLink = (key, memberId) => {
+  const saveLink = () => {
     const next = { ...state.dues.contactLinks }
-    if (memberId) next[key] = memberId
-    else delete next[key] // back to automatic matching
+    if (relink.memberId) next[relink.key] = relink.memberId
+    else delete next[relink.key] // back to automatic matching
     setDues({ contactLinks: next })
-    setEditingKey(null)
+    setRelink(null)
     // Keep the server-side match (viewers' own-payments filter) in step.
-    setTimeout(() => supabase.functions.invoke('zeffy-sync').catch(() => {}), 1500)
+    setTimeout(() => supabase.functions.invoke('zeffy-sync').catch(() => {}), 2000)
   }
 
   const clearAllLinks = () => {
@@ -466,31 +487,23 @@ function PaymentsTable({ payments, matcher, roster }) {
                     {p.buyer_email && <span className="block text-[11px] font-normal text-zinc-400">{p.buyer_email}</span>}
                   </td>
                   <td className="py-2 pr-3 whitespace-nowrap">
-                    {editingKey === key ? (
-                      <select
-                        autoFocus
-                        className="px-2 py-1 text-xs bg-white border border-zinc-300 rounded-lg cursor-pointer"
-                        value={state.dues.contactLinks?.[key] ?? ''}
-                        onChange={(e) => setLink(key, e.target.value)}
-                        onBlur={() => setEditingKey(null)}
-                      >
-                        <option value="">— automatic —</option>
-                        {roster.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                      </select>
-                    ) : (
-                      <button
-                        disabled={!canEdit}
-                        onClick={() => setEditingKey(key)}
-                        title={canEdit ? (isLinked ? 'Manually linked — click to change' : 'Click to correct this match') : undefined}
-                        className={canEdit ? 'cursor-pointer' : ''}
-                      >
-                        {memberId
-                          ? <Badge className={isLinked ? 'bg-violet-100 text-violet-700' : 'bg-emerald-100 text-emerald-700'}>
-                              {memberName(memberId)}{isLinked ? ' ✎' : ''}
-                            </Badge>
-                          : <Badge className="bg-amber-100 text-amber-800">unmatched</Badge>}
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      disabled={!canEdit}
+                      onClick={() => setRelink({
+                        key,
+                        buyer: buyerName(p),
+                        memberId: state.dues.contactLinks?.[key] ?? '',
+                      })}
+                      title={canEdit ? (isLinked ? 'Manually linked — click to change' : 'Click to correct this match') : undefined}
+                      className={canEdit ? 'cursor-pointer' : ''}
+                    >
+                      {memberId
+                        ? <Badge className={isLinked ? 'bg-violet-100 text-violet-700' : 'bg-emerald-100 text-emerald-700'}>
+                            {memberName(memberId)}{isLinked ? ' ✎' : ''}
+                          </Badge>
+                        : <Badge className="bg-amber-100 text-amber-800">unmatched</Badge>}
+                    </button>
                   </td>
                   <td className="py-2 pr-3 text-zinc-600">{p.description || '—'}</td>
                   <td className="py-2 pr-3 text-zinc-500">{(p.items ?? []).length}</td>
@@ -504,6 +517,26 @@ function PaymentsTable({ payments, matcher, roster }) {
           </tbody>
         </table>
       </div>
+
+      {relink && (
+        <Modal title={`Match payments from ${relink.buyer}`} onClose={() => setRelink(null)}>
+          <p className="text-xs text-zinc-500 mb-3">
+            Applies to every payment from this buyer. "Automatic" uses full name → unique last
+            name → unique first name.
+          </p>
+          <Select
+            value={relink.memberId}
+            onChange={(e) => setRelink({ ...relink, memberId: e.target.value })}
+          >
+            <option value="">— automatic —</option>
+            {roster.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </Select>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button onClick={() => setRelink(null)}>Cancel</Button>
+            <Button variant="primary" onClick={saveLink}>Save</Button>
+          </div>
+        </Modal>
+      )}
     </Card>
   )
 }
@@ -741,17 +774,23 @@ function MyDues() {
   const [info, setInfo] = useState(null) // get_my_dues result
   const [rows, setRows] = useState([])   // my zeffy payments
   const [reimbs, setReimbs] = useState([])
+  const [finesDue, setFinesDue] = useState(0) // my outstanding fines, cents
 
   useEffect(() => {
     ;(async () => {
-      const [{ data: d }, { data: pays }, { data: rb }] = await Promise.all([
+      const [{ data: d }, { data: pays }, { data: rb }, { data: fines }, { data: finePays }] = await Promise.all([
         supabase.rpc('get_my_dues'),
         supabase.from('zeffy_payments').select('*').order('created', { ascending: false }),
         supabase.from('reimbursements').select('*').in('status', ['approved', 'paid']),
+        supabase.from('checkins').select('fine'),   // RLS: own rows only
+        supabase.from('payments').select('amount'), // RLS: own rows only
       ])
       setInfo(d ?? { linked: false })
       setRows(pays ?? [])
       setReimbs(rb ?? [])
+      const fined = (fines ?? []).reduce((n, c) => n + Math.round(Number(c.fine) * 100), 0)
+      const paid = (finePays ?? []).reduce((n, p) => n + Math.round(Number(p.amount) * 100), 0)
+      setFinesDue(Math.max(0, fined - paid))
     })()
   }, [])
 
@@ -800,7 +839,7 @@ function MyDues() {
 
   const gross = cats.reduce((n, c) => (stateOf(c) === 'unpaid' ? n + c.amountCents : n), 0)
   const credit = donationCredit + reimbCredit
-  const net = Math.max(0, gross - credit)
+  const net = Math.max(0, gross + finesDue - credit)
 
   return (
     <div>
@@ -817,9 +856,10 @@ function MyDues() {
               {net > 0 ? cents(net) : '$0 🎉'}
             </div>
           </div>
-          {credit > 0 && (
+          {(credit > 0 || finesDue > 0) && (
             <div className="text-xs text-zinc-500">
               {cents(gross)} in unpaid fees
+              {finesDue > 0 && <span className="block text-amber-700">+ {cents(finesDue)} attendance fines</span>}
               {donationCredit > 0 && <span className="block">− {cents(donationCredit)} donation credit</span>}
               {reimbCredit > 0 && <span className="block">− {cents(reimbCredit)} reimbursement credit</span>}
             </div>

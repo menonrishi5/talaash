@@ -29,6 +29,10 @@ export default function CheckIn() {
           setPhase('none')
           return
         }
+        if (data.session.ended) {
+          setPhase('closed')
+          return
+        }
         setSession(data.session)
         setRoster(
           (data.roster ?? []).filter(isActive).sort((a, b) => a.name.localeCompare(b.name)),
@@ -97,6 +101,16 @@ export default function CheckIn() {
             <p className="text-sm text-zinc-600 text-center font-medium">No check-in is open today.</p>
             <p className="text-xs text-zinc-400 text-center mt-1">
               A board member starts the session when practice is on.
+            </p>
+          </Panel>
+        )}
+
+        {phase === 'closed' && (
+          <Panel>
+            <p className="text-3xl text-center mb-2">🏁</p>
+            <p className="text-sm text-zinc-600 text-center font-medium">Check-in is closed for today.</p>
+            <p className="text-xs text-zinc-400 text-center mt-1">
+              Talk to a board member if you made it but didn't get to check in.
             </p>
           </Panel>
         )}

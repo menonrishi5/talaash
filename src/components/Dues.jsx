@@ -17,6 +17,14 @@ const catId = (c) => c.id ?? c.rateId
 const isFineCandidate = (p) => JSON.stringify(p.raw ?? '').toLowerCase().includes('fine')
 
 export default function Dues() {
+  const { canEdit } = useAuth()
+  // Viewers get a private "my dues" view — the database only lets them read
+  // their own payment rows and their own slice of the dues doc.
+  if (!canEdit) return <MyDues />
+  return <DuesAdmin />
+}
+
+function DuesAdmin() {
   const { state, setDues } = useStore()
   const { canEdit } = useAuth()
   const { dues, roster } = state
@@ -27,12 +35,15 @@ export default function Dues() {
   const [campaignsOpen, setCampaignsOpen] = useState(false)
   const [tab, setTab] = useState('grid') // grid | payments | donations
 
+  const [reimbs, setReimbs] = useState([])
+
   const loadPayments = async () => {
-    const { data, error } = await supabase
-      .from('zeffy_payments')
-      .select('*')
-      .order('created', { ascending: false })
+    const [{ data, error }, { data: rb }] = await Promise.all([
+      supabase.from('zeffy_payments').select('*').order('created', { ascending: false }),
+      supabase.from('reimbursements').select('member_id,status,dues_credit_cents').in('status', ['approved', 'paid']),
+    ])
     if (!error) setPayments(data)
+    if (rb) setReimbs(rb)
   }
 
   useEffect(() => {
@@ -113,6 +124,7 @@ export default function Dues() {
     return list
   }, [succeeded, matcher])
 
+  // Credits = ticked donation credits + approved reimbursement dues-offsets.
   const creditsByMember = useMemo(() => {
     const map = {}
     for (const d of donations) {
@@ -120,8 +132,13 @@ export default function Dues() {
         map[d.memberId] = (map[d.memberId] || 0) + d.donationCents
       }
     }
+    for (const r of reimbs) {
+      if (r.member_id && r.dues_credit_cents > 0) {
+        map[r.member_id] = (map[r.member_id] || 0) + r.dues_credit_cents
+      }
+    }
     return map
-  }, [donations, dues.donationCredits])
+  }, [donations, dues.donationCredits, reimbs])
 
   const unmatched = useMemo(() => {
     const seen = new Map()
@@ -379,6 +396,8 @@ function PaymentsTable({ payments, matcher, roster }) {
     else delete next[key] // back to automatic matching
     setDues({ contactLinks: next })
     setEditingKey(null)
+    // Keep the server-side match (viewers' own-payments filter) in step.
+    setTimeout(() => supabase.functions.invoke('zeffy-sync').catch(() => {}), 1500)
   }
 
   const clearAllLinks = () => {
@@ -497,6 +516,9 @@ function UnmatchedCard({ unmatched }) {
     const memberId = picks[key]
     if (!memberId) return
     setDues({ contactLinks: { ...state.dues.contactLinks, [key]: memberId } })
+    // Re-sync so the server-side member match (which gates what viewers can
+    // see of their own payments) picks up the new link.
+    setTimeout(() => supabase.functions.invoke('zeffy-sync').catch(() => {}), 1500)
   }
 
   return (
@@ -705,5 +727,140 @@ function CategoriesModal({ payments, onClose }) {
         </div>
       </div>
     </Modal>
+  )
+}
+
+// ---- viewer view: just my dues ----
+// Data arrives pre-filtered: the RPC returns only this member's slice of the
+// dues doc, and RLS returns only their own payment rows.
+function MyDues() {
+  const [info, setInfo] = useState(null) // get_my_dues result
+  const [rows, setRows] = useState([])   // my zeffy payments
+  const [reimbs, setReimbs] = useState([])
+
+  useEffect(() => {
+    ;(async () => {
+      const [{ data: d }, { data: pays }, { data: rb }] = await Promise.all([
+        supabase.rpc('get_my_dues'),
+        supabase.from('zeffy_payments').select('*').order('created', { ascending: false }),
+        supabase.from('reimbursements').select('*').in('status', ['approved', 'paid']),
+      ])
+      setInfo(d ?? { linked: false })
+      setRows(pays ?? [])
+      setReimbs(rb ?? [])
+    })()
+  }, [])
+
+  if (!info) {
+    return <Card><div className="p-8 text-sm text-zinc-400">Loading your dues…</div></Card>
+  }
+
+  if (!info.linked) {
+    return (
+      <div>
+        <h1 className="text-xl font-bold text-zinc-900 mb-1">My Dues</h1>
+        <Card className="mt-4">
+          <EmptyState
+            icon={<span className="text-lg">🔗</span>}
+            title="Your account isn't linked to a roster member yet"
+            hint="Ask a board member to link it (Roster → App access) — then your payments and what you owe show up here."
+          />
+        </Card>
+      </div>
+    )
+  }
+
+  const excluded = info.excluded_campaigns || {}
+  const mine = rows.filter(
+    (p) => p.status === 'succeeded' && p.refund_status !== 'full' && !excluded[p.campaign_id ?? 'none'],
+  )
+  const paidRateIds = new Set(
+    mine.flatMap((p) => (p.items ?? []).filter((i) => i.rate_id).map((i) => i.rate_id)),
+  )
+  const overrides = info.overrides || {}
+  const cats = [...(info.categories ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+
+  const stateOf = (c) => {
+    const ov = overrides[c.id ?? c.rateId]
+    if (ov) return ov
+    return c.rateId && paidRateIds.has(c.rateId) ? 'auto-paid' : 'unpaid'
+  }
+
+  const donationCreditIds = new Set(info.donation_credit_ids ?? [])
+  const donationCredit = mine
+    .filter((p) => donationCreditIds.has(p.id))
+    .reduce((n, p) => n + (p.items ?? [])
+      .filter((i) => i.type === 'donation' || i.type === 'additional_donation')
+      .reduce((s, i) => s + (i.amount ?? 0), 0), 0)
+  const reimbCredit = reimbs.reduce((n, r) => n + (r.dues_credit_cents ?? 0), 0)
+
+  const gross = cats.reduce((n, c) => (stateOf(c) === 'unpaid' ? n + c.amountCents : n), 0)
+  const credit = donationCredit + reimbCredit
+  const net = Math.max(0, gross - credit)
+
+  return (
+    <div>
+      <div className="mb-5">
+        <h1 className="text-xl font-bold text-zinc-900 mb-1">My Dues</h1>
+        <p className="text-sm text-zinc-500">Only you (and the board) can see this.</p>
+      </div>
+
+      <Card className="mb-5">
+        <div className="px-5 py-5 flex items-center gap-6 flex-wrap">
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-zinc-400 font-medium">You currently owe</div>
+            <div className={`text-3xl font-black ${net > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+              {net > 0 ? cents(net) : '$0 🎉'}
+            </div>
+          </div>
+          {credit > 0 && (
+            <div className="text-xs text-zinc-500">
+              {cents(gross)} in unpaid fees
+              {donationCredit > 0 && <span className="block">− {cents(donationCredit)} donation credit</span>}
+              {reimbCredit > 0 && <span className="block">− {cents(reimbCredit)} reimbursement credit</span>}
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {cats.length > 0 && (
+        <Card className="mb-5">
+          <CardHeader title="Fee checklist" />
+          <ul className="px-5 pb-5 divide-y divide-zinc-100">
+            {cats.map((c) => {
+              const st = stateOf(c)
+              return (
+                <li key={c.id ?? c.rateId} className="py-2 flex items-center gap-3 text-sm">
+                  <span className="flex-1 text-zinc-800">{c.name}</span>
+                  <span className="text-zinc-400 text-xs">{cents(c.amountCents)}</span>
+                  {st === 'unpaid'
+                    ? <Badge className="bg-red-50 text-red-500">not paid</Badge>
+                    : st === 'exempt'
+                      ? <Badge className="bg-zinc-100 text-zinc-500">exempt</Badge>
+                      : <Badge className="bg-emerald-100 text-emerald-700">paid ✓</Badge>}
+                </li>
+              )
+            })}
+          </ul>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader title={`My payments (${mine.length})`} subtitle="Everything Zeffy has from you." />
+        {mine.length === 0 ? (
+          <p className="px-5 pb-5 text-sm text-zinc-400 italic">No payments found for you yet.</p>
+        ) : (
+          <ul className="px-5 pb-5 divide-y divide-zinc-100">
+            {mine.map((p) => (
+              <li key={p.id} className="py-2 flex items-center gap-3 text-sm">
+                <span className="text-zinc-500 text-xs w-20">{new Date(p.created).toLocaleDateString()}</span>
+                <span className="flex-1 text-zinc-700">{p.description || 'Payment'}</span>
+                <span className="font-semibold text-zinc-800">{cents(p.amount_cents)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </div>
   )
 }

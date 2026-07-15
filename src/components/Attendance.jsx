@@ -22,6 +22,115 @@ for (let m = 16 * 60; m <= 23 * 60; m += 15) timeOpts.push(m)
 
 export default function Attendance() {
   const { canEdit } = useAuth()
+  // Members see their own attendance + fines; the database only returns
+  // their own rows anyway.
+  if (!canEdit) return <MyAttendance />
+  return <AttendanceAdmin />
+}
+
+// ---- viewer view ----
+function MyAttendance() {
+  const { memberId } = useAuth()
+  const [checkins, setCheckins] = useState(null)
+  const [pays, setPays] = useState([])
+  const [todaySession, setTodaySession] = useState(null)
+
+  useEffect(() => {
+    ;(async () => {
+      const [{ data: c }, { data: p }, { data: s }] = await Promise.all([
+        supabase
+          .from('checkins')
+          .select('*, attendance_sessions(session_date)')
+          .order('checked_at', { ascending: false }),
+        supabase.from('payments').select('*'),
+        supabase
+          .from('attendance_sessions')
+          .select('id, session_date')
+          .eq('session_date', todayTeamISO())
+          .maybeSingle(),
+      ])
+      setCheckins(c ?? [])
+      setPays(p ?? [])
+      setTodaySession(s)
+    })()
+  }, [])
+
+  const fined = (checkins ?? []).reduce((n, c) => n + Number(c.fine), 0)
+  const paid = pays.reduce((n, p) => n + Number(p.amount), 0)
+  const due = Math.max(0, fined - paid)
+  const late = (checkins ?? []).filter((c) => c.mins_late > 0).length
+
+  return (
+    <div>
+      <div className="mb-5">
+        <h1 className="text-xl font-bold text-zinc-900 mb-1">My Attendance</h1>
+        <p className="text-sm text-zinc-500">Your check-ins and fines — only you and the board see this.</p>
+      </div>
+
+      {todaySession && (
+        <Card className="mb-5">
+          <div className="px-5 py-4 flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-sm font-semibold text-zinc-800">Practice check-in is open today</p>
+              <p className="text-xs text-zinc-500">Use the password announced at practice.</p>
+            </div>
+            <Button variant="primary" onClick={() => window.open(checkInURL(), '_blank')}>
+              Check in now
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        {[
+          ['Practices attended', checkins?.length ?? '—'],
+          ['Times late', late],
+          ['Total fines', money(fined)],
+          ['Outstanding', due > 0 ? money(due) : '$0 ✓'],
+        ].map(([label, value]) => (
+          <Card key={label}>
+            <div className="px-4 py-3">
+              <div className="text-[11px] uppercase tracking-wide text-zinc-400 font-medium">{label}</div>
+              <div className={`text-xl font-bold ${label === 'Outstanding' && due > 0 ? 'text-red-600' : 'text-zinc-900'}`}>{value}</div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      <Card>
+        <CardHeader title="History" />
+        {!memberId ? (
+          <p className="px-5 pb-5 text-sm text-zinc-500">
+            Your account isn't linked to a roster member yet — ask a board member to link it
+            (Roster → App access) and your history will appear here.
+          </p>
+        ) : checkins === null ? (
+          <p className="px-5 pb-5 text-sm text-zinc-400">Loading…</p>
+        ) : checkins.length === 0 ? (
+          <p className="px-5 pb-5 text-sm text-zinc-400 italic">No check-ins yet.</p>
+        ) : (
+          <ul className="px-5 pb-5 divide-y divide-zinc-100">
+            {checkins.map((c) => (
+              <li key={c.id} className="py-2 flex items-center gap-3 text-sm">
+                <span className="text-zinc-500 text-xs w-20">
+                  {c.attendance_sessions?.session_date ? fmtDate(c.attendance_sessions.session_date) : '—'}
+                </span>
+                <span className="flex-1 text-zinc-700">checked in {fmtTeamTime(c.checked_at)}</span>
+                {c.mins_late > 0
+                  ? <Badge className="bg-amber-100 text-amber-800">{c.mins_late} min late</Badge>
+                  : <Badge className="bg-emerald-100 text-emerald-700">on time</Badge>}
+                {Number(c.fine) > 0 && <span className="font-semibold text-red-600">{money(c.fine)}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+function AttendanceAdmin() {
+  const { canEdit } = useAuth()
   const todayISO = todayTeamISO()
   const [session, setSession] = useState(null) // today's session row, or null
   const [checkins, setCheckins] = useState([])

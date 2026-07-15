@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
+import { supabase } from '../supabase.js'
 import WeekGrid from './WeekGrid.jsx'
 import {
   uid, weekStartISO, addDaysISO, fmtWeekRange, minToLabel, durationLabel,
@@ -19,13 +20,22 @@ const STATUS_META = {
 
 export default function Benching() {
   const { state } = useStore()
-  const { canEdit } = useAuth()
+  const { canEdit, memberId } = useAuth()
   const { benching } = state
   const [weekISO, setWeekISO] = useState(weekStartISO())
   const [importOpen, setImportOpen] = useState(false)
   const [slotModal, setSlotModal] = useState(null) // template slot id or 'new'
   const [statsOpen, setStatsOpen] = useState(false)
   const [locOpen, setLocOpen] = useState(false)
+  const [responses, setResponses] = useState([])
+
+  const loadResponses = async () => {
+    const { data } = await supabase.from('slot_responses').select('*')
+    if (data) setResponses(data)
+  }
+  useEffect(() => {
+    loadResponses()
+  }, [])
 
   const overrides = benching.weeks[weekISO] || {}
   const memberName = (id) => state.roster.find((m) => m.id === id)?.name ?? '—'
@@ -86,6 +96,10 @@ export default function Benching() {
           )}
         </div>
       </div>
+
+      {memberId && (
+        <MyBenching responses={responses} onChanged={loadResponses} />
+      )}
 
       {/* Location */}
       <Card className="mb-5">
@@ -197,10 +211,119 @@ export default function Benching() {
         <SlotModal
           slotId={slotModal === 'new' ? null : slotModal}
           weekISO={weekISO}
+          response={responses.find((r) => r.week_iso === weekISO && r.slot_id === slotModal) ?? null}
           onClose={() => setSlotModal(null)}
         />
       )}
     </div>
+  )
+}
+
+// The signed-in member's own upcoming slots (this week + next), with
+// accept / decline. Responses drive the Slack reminders and the automatic
+// reserve call-up at the deadline.
+function MyBenching({ responses, onChanged }) {
+  const { state } = useStore()
+  const { memberId } = useAuth()
+  const { benching, settings, roster } = state
+  const deadlineH = settings?.benchingAcceptDeadlineHours ?? 12
+  const [busy, setBusy] = useState(null) // occurrence key while saving
+
+  const nameOf = (id) => roster.find((m) => m.id === id)?.name ?? '—'
+  const now = new Date()
+
+  const occurrences = []
+  for (const wkISO of [weekStartISO(), addDaysISO(weekStartISO(), 7)]) {
+    for (const slot of benching.template) {
+      if (slot.memberId !== memberId && slot.reserveId !== memberId) continue
+      const dateISO = addDaysISO(wkISO, slot.day)
+      const [y, mo, d] = dateISO.split('-').map(Number)
+      const start = new Date(y, mo - 1, d, Math.floor(slot.startMin / 60), slot.startMin % 60)
+      const end = new Date(y, mo - 1, d, Math.floor(slot.endMin / 60), slot.endMin % 60)
+      if (end < now) continue
+      const resp = responses.find((r) => r.week_iso === wkISO && r.slot_id === slot.id) ?? null
+      const pastDeadline = now.getTime() > start.getTime() - deadlineH * 3600000
+      const reserveOn = resp?.status === 'declined' || (resp?.status !== 'accepted' && pastDeadline && slot.reserveId)
+      occurrences.push({ wkISO, slot, dateISO, start, resp, pastDeadline, reserveOn, mine: slot.memberId === memberId })
+    }
+  }
+  occurrences.sort((a, b) => a.start - b.start)
+
+  if (occurrences.length === 0) return null
+
+  const respond = async (occ, status) => {
+    const key = `${occ.wkISO}:${occ.slot.id}`
+    setBusy(key)
+    const { error } = await supabase.from('slot_responses').upsert(
+      { week_iso: occ.wkISO, slot_id: occ.slot.id, member_id: occ.slot.memberId, status },
+      { onConflict: 'week_iso,slot_id' },
+    )
+    setBusy(null)
+    if (error) alert('Could not save: ' + error.message)
+    else onChanged()
+  }
+
+  return (
+    <Card className="mb-5">
+      <CardHeader
+        title="My benching"
+        subtitle={`Accept your slots so the room's covered — unaccepted slots pass to the reserve ${deadlineH}h before start.`}
+      />
+      <ul className="px-5 pb-5 divide-y divide-zinc-100">
+        {occurrences.map((occ) => {
+          const key = `${occ.wkISO}:${occ.slot.id}`
+          return (
+            <li key={key} className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
+              <div className="flex-1 min-w-44">
+                <span className="font-medium text-zinc-800">
+                  {DAY_NAMES[occ.slot.day]} {occ.dateISO.slice(5)} · {minToLabel(occ.slot.startMin)} – {minToLabel(occ.slot.endMin)}
+                </span>
+                {!occ.mine && (
+                  <span className="block text-xs text-zinc-400">
+                    you're the reserve for {nameOf(occ.slot.memberId)}
+                  </span>
+                )}
+              </div>
+
+              {occ.mine ? (
+                occ.resp?.status === 'accepted' ? (
+                  <>
+                    <Badge className="bg-emerald-100 text-emerald-700">✓ accepted</Badge>
+                    <Button size="sm" variant="ghost" className="text-red-500" disabled={busy === key}
+                      onClick={() => respond(occ, 'declined')}>
+                      Can't make it anymore
+                    </Button>
+                  </>
+                ) : occ.resp?.status === 'declined' ? (
+                  <Badge className="bg-zinc-100 text-zinc-600">
+                    declined{occ.slot.reserveId ? ` — passed to ${nameOf(occ.slot.reserveId)}` : ''}
+                  </Badge>
+                ) : occ.reserveOn ? (
+                  <Badge className="bg-amber-100 text-amber-800">
+                    deadline passed — {occ.slot.reserveId ? `${nameOf(occ.slot.reserveId)} called` : 'uncovered'}
+                  </Badge>
+                ) : (
+                  <>
+                    <Button size="sm" variant="success" disabled={busy === key} onClick={() => respond(occ, 'accepted')}>
+                      ✓ Accept
+                    </Button>
+                    <Button size="sm" variant="danger" disabled={busy === key} onClick={() => respond(occ, 'declined')}>
+                      Can't make it
+                    </Button>
+                  </>
+                )
+              ) : occ.reserveOn ? (
+                <Badge className="bg-sky-100 text-sky-700">🔁 you're up — please cover this</Badge>
+              ) : (
+                <Badge className="bg-zinc-100 text-zinc-500">
+                  on standby{occ.resp?.status === 'accepted' ? ` — ${nameOf(occ.slot.memberId)} accepted` : ''}
+                </Badge>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </Card>
   )
 }
 
@@ -318,7 +441,7 @@ function ImportModal({ onClose }) {
 }
 
 // Attendance + editing for one slot in a given week.
-function SlotModal({ slotId, weekISO, onClose }) {
+function SlotModal({ slotId, weekISO, response, onClose }) {
   const { state, setSlotStatus, addTemplateSlot, updateTemplateSlot, removeTemplateSlot } = useStore()
   const { canEdit } = useAuth()
   const slot = state.benching.template.find((s) => s.id === slotId) ?? null
@@ -371,6 +494,16 @@ function SlotModal({ slotId, weekISO, onClose }) {
               <span className="text-zinc-500">This week ({fmtWeekRange(weekISO)}):</span>{' '}
               <Badge className={STATUS_META[status].badge}>{STATUS_META[status].label}</Badge>
               {status === 'cover' && <span className="ml-1 font-medium">{memberName(ov.coverMemberId)}</span>}
+            </p>
+            <p>
+              <span className="text-zinc-500">Member response:</span>{' '}
+              {response ? (
+                <Badge className={response.status === 'accepted' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}>
+                  {response.status}
+                </Badge>
+              ) : (
+                <Badge className="bg-zinc-100 text-zinc-500">no response yet</Badge>
+              )}
             </p>
           </div>
 

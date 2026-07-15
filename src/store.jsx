@@ -35,6 +35,8 @@ const DEFAULT_STATE = {
   settings: {
     // Is the left of the forms-PDF page the performers' stage left?
     pdfLeftIsStageLeft: true,
+    // Unaccepted benching slots pass to the reserve this many hours before start.
+    benchingAcceptDeadlineHours: 12,
   },
 }
 

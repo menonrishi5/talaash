@@ -41,6 +41,7 @@ export function AuthProvider({ children }) {
     profile,
     role: profile?.role ?? 'viewer',
     canEdit: profile?.role === 'editor',
+    memberId: profile?.member_id ?? null, // linked roster member, set in App access
     signOut: () => supabase.auth.signOut(),
   }
 

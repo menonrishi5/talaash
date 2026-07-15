@@ -1,6 +1,7 @@
-// Zeffy → Supabase sync. Paste this into a Supabase Edge Function named
-// "zeffy-sync" (Dashboard → Edge Functions → Deploy a new function).
-// Requires the ZEFFY_API_KEY secret. The Zeffy key never leaves the server.
+// Zeffy → Supabase sync (v2). Re-paste over the existing "zeffy-sync"
+// edge function. Adds matched_member_id, computed with the same precedence
+// as the app (manual link > full name > unique last name > unique first
+// name), so row-level security can show viewers only their own payments.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -9,6 +10,45 @@ const cors = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
+
+const norm = (s: unknown) =>
+  String(s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+
+function buildMatcher(
+  roster: { id: string; name: string }[],
+  links: Record<string, string>,
+) {
+  const ids = new Set(roster.map((m) => m.id));
+  const byFull: Record<string, string> = {};
+  const byLast: Record<string, string[]> = {};
+  const byFirst: Record<string, string[]> = {};
+  for (const m of roster) {
+    const full = norm(m.name);
+    byFull[full] = m.id;
+    const words = full.split(" ");
+    if (words[0]) (byFirst[words[0]] = byFirst[words[0]] || []).push(m.id);
+    if (words.length > 1) {
+      const last = words[words.length - 1];
+      (byLast[last] = byLast[last] || []).push(m.id);
+    }
+  }
+  return (buyerFirst: unknown, buyerLast: unknown, buyerEmail: unknown) => {
+    const full = norm(`${buyerFirst ?? ""} ${buyerLast ?? ""}`);
+    const key = norm(buyerEmail) || full;
+    const linked = links[key];
+    if (linked && ids.has(linked)) return linked;
+    if (byFull[full]) return byFull[full];
+    const last = buyerLast
+      ? norm(buyerLast).split(" ").pop()!
+      : full.includes(" ") ? full.split(" ").pop()! : "";
+    const lastHits = byLast[last] ?? [];
+    if (lastHits.length === 1) return lastHits[0];
+    const first = norm(buyerFirst).split(" ")[0] || full.split(" ")[0];
+    const firstHits = byFirst[first] ?? [];
+    if (firstHits.length === 1) return firstHits[0];
+    return null;
+  };
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -22,10 +62,21 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // Roster + manual buyer links, for server-side member matching.
+    const { data: stateRows } = await supabase
+      .from("app_state")
+      .select("key,data")
+      .in("key", ["roster", "dues"]);
+    const roster = (stateRows?.find((r) => r.key === "roster")?.data ??
+      []) as { id: string; name: string }[];
+    const links = ((stateRows?.find((r) => r.key === "dues")?.data as
+      | { contactLinks?: Record<string, string> }
+      | undefined)?.contactLinks ?? {});
+    const match = buildMatcher(roster, links);
+
     let startingAfter: string | null = null;
     let synced = 0;
 
-    // Full resync each run — team-sized volumes, well under rate limits.
     for (let page = 0; page < 50; page++) {
       const url = new URL("https://api.zeffy.com/api/v1/payments");
       url.searchParams.set("limit", "100");
@@ -58,6 +109,7 @@ Deno.serve(async (req) => {
           buyer_email: buyer.email ?? null,
           buyer_first: buyer.first_name ?? null,
           buyer_last: buyer.last_name ?? null,
+          matched_member_id: match(buyer.first_name, buyer.last_name, buyer.email),
           items: p.items ?? [],
           raw: p,
           synced_at: new Date().toISOString(),

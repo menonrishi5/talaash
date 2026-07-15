@@ -124,6 +124,7 @@ export default function Roster() {
 // enforced by the database, this UI just edits the profiles table.
 function TeamAccess() {
   const { canEdit, session } = useAuth()
+  const { state } = useStore()
   const [profiles, setProfiles] = useState(null)
   const [error, setError] = useState(null)
 
@@ -140,9 +141,9 @@ function TeamAccess() {
     loadProfiles()
   }, [])
 
-  const setRole = async (id, role) => {
-    const { error } = await supabase.from('profiles').update({ role }).eq('id', id)
-    if (error) alert('Could not change role: ' + error.message)
+  const update = async (id, patch) => {
+    const { error } = await supabase.from('profiles').update(patch).eq('id', id)
+    if (error) alert('Could not update the account: ' + error.message)
     loadProfiles()
   }
 
@@ -150,7 +151,7 @@ function TeamAccess() {
     <Card>
       <CardHeader
         title="App access"
-        subtitle="Everyone with an account. Viewers see everything; editors can change things."
+        subtitle="Accounts, their role, and which roster member each account IS. The member link powers own-only dues, benching accept/decline, and Slack notifications."
       />
       <div className="px-5 pb-5">
         {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
@@ -160,32 +161,52 @@ function TeamAccess() {
           <p className="text-sm text-zinc-400 italic">No accounts yet.</p>
         ) : (
           <ul className="divide-y divide-zinc-100">
-            {profiles.map((p) => (
-              <li key={p.id} className="flex items-center gap-3 py-2.5">
-                <span className="flex-1 text-sm text-zinc-800 truncate">
-                  {p.email}
-                  {p.id === session?.user?.id && <span className="text-zinc-400"> (you)</span>}
-                </span>
-                {canEdit && p.id !== session?.user?.id ? (
-                  <Select
-                    className="!w-28 !py-1 !text-xs"
-                    value={p.role}
-                    onChange={(e) => setRole(p.id, e.target.value)}
-                  >
-                    <option value="viewer">viewer</option>
-                    <option value="editor">editor</option>
-                  </Select>
-                ) : (
-                  <Badge className={p.role === 'editor' ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}>
-                    {p.role}
-                  </Badge>
-                )}
-              </li>
-            ))}
+            {profiles.map((p) => {
+              const member = state.roster.find((m) => m.id === p.member_id)
+              return (
+                <li key={p.id} className="flex items-center gap-2 py-2.5 flex-wrap">
+                  <span className="flex-1 min-w-40 text-sm text-zinc-800 truncate">
+                    {p.email}
+                    {p.id === session?.user?.id && <span className="text-zinc-400"> (you)</span>}
+                  </span>
+                  {canEdit ? (
+                    <Select
+                      className="!w-44 !py-1 !text-xs"
+                      value={p.member_id ?? ''}
+                      onChange={(e) => update(p.id, { member_id: e.target.value || null })}
+                      title="Which roster member is this account?"
+                    >
+                      <option value="">not linked</option>
+                      {state.roster.map((m) => (
+                        <option key={m.id} value={m.id}>{m.name}</option>
+                      ))}
+                    </Select>
+                  ) : member ? (
+                    <Badge className="bg-zinc-100 text-zinc-600">{member.name}</Badge>
+                  ) : null}
+                  {canEdit && p.id !== session?.user?.id ? (
+                    <Select
+                      className="!w-28 !py-1 !text-xs"
+                      value={p.role}
+                      onChange={(e) => update(p.id, { role: e.target.value })}
+                    >
+                      <option value="viewer">viewer</option>
+                      <option value="editor">editor</option>
+                    </Select>
+                  ) : (
+                    <Badge className={p.role === 'editor' ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}>
+                      {p.role}
+                    </Badge>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         )}
         <p className="text-[11px] text-zinc-400 mt-3">
           Anyone on the team can create an account from the sign-in page — they start as a viewer.
+          Link each account to its roster member so members see their own dues and can accept
+          benching slots.
         </p>
       </div>
     </Card>

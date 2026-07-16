@@ -356,7 +356,11 @@ function LiveSession({ session, checkins, refresh }) {
   // End = close check-in, keep everything. Fines recorded so far stand.
   const endSession = async () => {
     if (!confirm('End today\'s check-in? Fines recorded so far stand, and nobody else can check in. (You can reopen if needed.)')) return
-    await supabase.from('attendance_sessions').update({ ended_at: new Date().toISOString() }).eq('id', session.id)
+    const { error } = await supabase
+      .from('attendance_sessions')
+      .update({ ended_at: new Date().toISOString() })
+      .eq('id', session.id)
+    if (error) { alert('Could not end the session: ' + error.message); return }
     refresh()
   }
 

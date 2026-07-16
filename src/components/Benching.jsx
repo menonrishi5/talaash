@@ -11,8 +11,10 @@ import { isActive } from '../matching.js'
 import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, inputCls } from './ui.jsx'
 
 const STATUS_META = {
-  pending: { label: 'Awaiting confirmation', color: '#a1a1aa', badge: 'bg-zinc-100 text-zinc-600' },
-  primary: { label: 'Confirmed', color: '#10b981', badge: 'bg-emerald-100 text-emerald-700' },
+  pending: { label: 'Awaiting response', color: '#a1a1aa', badge: 'bg-zinc-100 text-zinc-600' },
+  accepted: { label: 'Accepted', color: '#22c55e', badge: 'bg-green-100 text-green-700' },
+  declined: { label: 'Declined', color: '#f59e0b', badge: 'bg-amber-100 text-amber-800' },
+  primary: { label: 'Benched (confirmed)', color: '#10b981', badge: 'bg-emerald-100 text-emerald-700' },
   reserve: { label: 'Reserve covering', color: '#0ea5e9', badge: 'bg-sky-100 text-sky-700' },
   cover: { label: 'Manual cover', color: '#8b5cf6', badge: 'bg-violet-100 text-violet-700' },
   uncovered: { label: 'NOT COVERED', color: '#ef4444', badge: 'bg-red-100 text-red-700' },
@@ -41,9 +43,18 @@ export default function Benching() {
   const memberName = (id) => state.roster.find((m) => m.id === id)?.name ?? '—'
 
   const slotStatus = (slot) => overrides[slot.id]?.status ?? 'pending'
+  const responseFor = (slotId) =>
+    responses.find((r) => r.week_iso === weekISO && r.slot_id === slotId)?.status
 
   const events = benching.template.map((slot) => {
-    const status = slotStatus(slot)
+    // Editor attendance outcome wins; before that, reflect the member's RSVP
+    // (accept/decline) so the grid updates the moment they respond.
+    let status = slotStatus(slot)
+    if (status === 'pending') {
+      const resp = responseFor(slot.id)
+      if (resp === 'accepted') status = 'accepted'
+      else if (resp === 'declined') status = 'declined'
+    }
     const ov = overrides[slot.id]
     const meta = STATUS_META[status]
     const who =
@@ -60,6 +71,8 @@ export default function Benching() {
       title: status === 'uncovered' ? '⚠ Uncovered' : who,
       subtitle:
         status === 'pending' ? `${memberName(slot.memberId)}${slot.reserveId ? ` · res: ${memberName(slot.reserveId)}` : ''}`
+        : status === 'accepted' ? '✓ accepted'
+        : status === 'declined' ? (slot.reserveId ? `declined → ${memberName(slot.reserveId)}` : 'declined')
         : status === 'reserve' ? 'reserve'
         : status === 'cover' ? 'covering'
         : status === 'uncovered' ? who

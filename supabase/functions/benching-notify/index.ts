@@ -110,7 +110,12 @@ Deno.serve(async (_req) => {
     const emailByMember: Record<string, string> = {};
     for (const p of profiles ?? []) emailByMember[p.member_id] = p.slack_email || p.email;
     const nameOf = (id: string | null) => roster.find((m) => m.id === id)?.name ?? "someone";
-    const sent = new Set((log ?? []).map((l) => `${l.occ_key}|${l.kind}`));
+    // Only a *successful* send suppresses a retry. Undeliverable attempts
+    // (e.g. Slack email not set yet) are retried on later runs, so fixing the
+    // email delivers within ~10 minutes instead of being silenced forever.
+    const sent = new Set(
+      (log ?? []).filter((l) => l.detail === "sent").map((l) => `${l.occ_key}|${l.kind}`),
+    );
     const respByOcc: Record<string, { status: string }> = {};
     for (const r of responses ?? []) respByOcc[`${r.week_iso}:${r.slot_id}`] = r;
 
@@ -185,10 +190,11 @@ Deno.serve(async (_req) => {
           detail = `no slack user for ${email}`;
         }
       }
-      // Log even when undeliverable so we don't retry forever.
+      // Upsert (updating detail on conflict) so a later success flips an
+      // earlier failure to "sent" and stops the retries.
       await supabase.from("notification_log").upsert(
-        { occ_key: n.occ, kind: n.kind, member_id: n.memberId, detail },
-        { onConflict: "occ_key,kind", ignoreDuplicates: true },
+        { occ_key: n.occ, kind: n.kind, member_id: n.memberId, detail, sent_at: new Date().toISOString() },
+        { onConflict: "occ_key,kind" },
       );
     }
 

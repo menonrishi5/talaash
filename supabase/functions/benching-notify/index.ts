@@ -91,7 +91,7 @@ Deno.serve(async (_req) => {
     const [{ data: stateRows }, { data: profiles }, { data: responses }, { data: log }] =
       await Promise.all([
         supabase.from("app_state").select("key,data").in("key", ["roster", "benching", "settings"]),
-        supabase.from("profiles").select("member_id,email").not("member_id", "is", null),
+        supabase.from("profiles").select("member_id,email,slack_email").not("member_id", "is", null),
         supabase.from("slot_responses").select("*"),
         supabase.from("notification_log").select("occ_key,kind"),
       ]);
@@ -106,8 +106,9 @@ Deno.serve(async (_req) => {
       { benchingAcceptDeadlineHours?: number };
     const deadlineH = settings.benchingAcceptDeadlineHours ?? 12;
 
+    // Prefer an explicitly-set Slack email, fall back to the login email.
     const emailByMember: Record<string, string> = {};
-    for (const p of profiles ?? []) emailByMember[p.member_id] = p.email;
+    for (const p of profiles ?? []) emailByMember[p.member_id] = p.slack_email || p.email;
     const nameOf = (id: string | null) => roster.find((m) => m.id === id)?.name ?? "someone";
     const sent = new Set((log ?? []).map((l) => `${l.occ_key}|${l.kind}`));
     const respByOcc: Record<string, { status: string }> = {};

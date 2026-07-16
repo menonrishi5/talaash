@@ -184,6 +184,19 @@ function TeamAccess() {
                   ) : member ? (
                     <Badge className="bg-zinc-100 text-zinc-600">{member.name}</Badge>
                   ) : null}
+                  {canEdit && (
+                    <input
+                      type="email"
+                      defaultValue={p.slack_email ?? ''}
+                      placeholder="Slack email (if different)"
+                      title="Set only if this person's Slack email differs from their login email, so DM reminders reach them."
+                      className="w-48 px-2 py-1 text-xs bg-white border border-zinc-300 rounded-lg"
+                      onBlur={(e) => {
+                        const v = e.target.value.trim()
+                        if (v !== (p.slack_email ?? '')) update(p.id, { slack_email: v || null })
+                      }}
+                    />
+                  )}
                   {canEdit && p.id !== session?.user?.id ? (
                     <Select
                       className="!w-28 !py-1 !text-xs"
@@ -206,7 +219,8 @@ function TeamAccess() {
         <p className="text-[11px] text-zinc-400 mt-3">
           Anyone on the team can create an account from the sign-in page — they start as a viewer.
           Link each account to its roster member so members see their own dues and can accept
-          benching slots.
+          benching slots. Set a Slack email only when it differs from the login email, so DM
+          reminders reach them.
         </p>
       </div>
     </Card>

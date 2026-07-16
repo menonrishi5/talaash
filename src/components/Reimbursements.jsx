@@ -34,6 +34,7 @@ export default function Reimbursements() {
   const { state } = useStore()
   const [rows, setRows] = useState(null)
   const [decide, setDecide] = useState(null) // row being approved/denied
+  const [edit, setEdit] = useState(null) // row being edited (editor)
 
   const load = async () => {
     // RLS: viewers get their own rows, editors get everything.
@@ -99,7 +100,11 @@ export default function Reimbursements() {
                 {pending.map((r) => (
                   <Row key={r.id} r={r} memberName={memberName}>
                     {canEdit ? (
-                      <Button size="sm" variant="primary" onClick={() => setDecide(r)}>Review</Button>
+                      <>
+                        <Button size="sm" variant="primary" onClick={() => setDecide(r)}>Review</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEdit(r)}>Edit</Button>
+                        <Button size="sm" variant="ghost" className="text-red-500" onClick={() => remove(r)}>Delete</Button>
+                      </>
                     ) : (
                       <Button size="sm" variant="ghost" className="text-red-500" onClick={() => remove(r)}>Withdraw</Button>
                     )}
@@ -121,6 +126,13 @@ export default function Reimbursements() {
                       (r.approved_amount_cents ?? 0) - (r.dues_credit_cents ?? 0) > 0 && (
                         <Button size="sm" variant="success" onClick={() => markPaid(r)}>Mark paid back</Button>
                       )}
+                    {canEdit && (
+                      <>
+                        <Button size="sm" variant="ghost" onClick={() => setDecide(r)}>Re-review</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEdit(r)}>Edit</Button>
+                        <Button size="sm" variant="ghost" className="text-red-500" onClick={() => remove(r)}>Delete</Button>
+                      </>
+                    )}
                   </Row>
                 ))}
               </ul>
@@ -130,7 +142,81 @@ export default function Reimbursements() {
       )}
 
       {decide && <DecideModal r={decide} memberName={memberName} onClose={() => { setDecide(null); load() }} />}
+      {edit && <EditModal r={edit} memberName={memberName} onClose={() => { setEdit(null); load() }} />}
     </div>
+  )
+}
+
+// Editor edit of a request's core fields (amount, description, category, date,
+// and — for members whose account isn't linked — which member it's for).
+function EditModal({ r, memberName, onClose }) {
+  const { state } = useStore()
+  const [form, setForm] = useState({
+    amount: (r.amount_cents / 100).toFixed(2),
+    description: r.description ?? '',
+    category: r.category ?? '',
+    purchase_date: r.purchase_date ?? '',
+    member_id: r.member_id ?? '',
+  })
+  const [busy, setBusy] = useState(false)
+
+  const save = async () => {
+    const amount = Math.round(Number(form.amount) * 100)
+    if (!amount || amount <= 0 || !form.description.trim()) return
+    setBusy(true)
+    const { error } = await supabase
+      .from('reimbursements')
+      .update({
+        amount_cents: amount,
+        description: form.description.trim(),
+        category: form.category || null,
+        purchase_date: form.purchase_date || null,
+        member_id: form.member_id || null,
+      })
+      .eq('id', r.id)
+    setBusy(false)
+    if (error) return alert('Could not save: ' + error.message)
+    onClose()
+  }
+
+  return (
+    <Modal title="Edit reimbursement" onClose={onClose}>
+      <Field label="Member">
+        <Select value={form.member_id} onChange={(e) => setForm({ ...form, member_id: e.target.value })}>
+          <option value="">— unlinked —</option>
+          {state.roster.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </Select>
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Amount ($)">
+          <input type="number" min="0" step="0.01" className={inputCls} value={form.amount}
+            onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+        </Field>
+        <Field label="Date of purchase">
+          <input type="date" className={inputCls} value={form.purchase_date}
+            onChange={(e) => setForm({ ...form, purchase_date: e.target.value })} />
+        </Field>
+      </div>
+      <Field label="Category">
+        <Select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+          <option value="">— none —</option>
+          {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+        </Select>
+      </Field>
+      <Field label="Description">
+        <TextInput value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+      </Field>
+      {r.status !== 'pending' && (
+        <p className="text-[11px] text-amber-700 mb-3">
+          This request is already {r.status}. Editing the amount doesn't change the approved/credited
+          figures — use Re-review to redo the decision.
+        </p>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="primary" disabled={busy} onClick={save}>Save changes</Button>
+      </div>
+    </Modal>
   )
 }
 
@@ -258,9 +344,10 @@ function SubmitCard({ onSubmitted }) {
 
 // Editor approval: split the approved amount into dues credit + cash payout.
 function DecideModal({ r, memberName, onClose }) {
-  const [approved, setApproved] = useState((r.amount_cents / 100).toFixed(2))
-  const [credit, setCredit] = useState('0')
-  const [note, setNote] = useState('')
+  // Re-review pre-fills from the prior decision; first review from the request.
+  const [approved, setApproved] = useState(((r.approved_amount_cents ?? r.amount_cents) / 100).toFixed(2))
+  const [credit, setCredit] = useState(((r.dues_credit_cents ?? 0) / 100).toFixed(2))
+  const [note, setNote] = useState(r.decision_note ?? '')
   const [busy, setBusy] = useState(false)
 
   const approvedC = Math.round(Number(approved) * 100) || 0

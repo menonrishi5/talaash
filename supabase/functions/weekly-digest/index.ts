@@ -49,8 +49,8 @@ Deno.serve(async (_req) => {
     if (!channel) return new Response(JSON.stringify({ ok: false, error: "No slackDigestChannel configured" }), { status: 200 });
 
     const nameOf = (id: string | null) => roster.find((m) => m.id === id)?.name ?? "someone";
-    const respBySlot: Record<string, string> = {};
-    for (const r of responses ?? []) respBySlot[r.slot_id] = r.status;
+    const respBySlot: Record<string, { status: string; reserve_status?: string }> = {};
+    for (const r of responses ?? []) respBySlot[r.slot_id] = r;
     const weekOv = benching.weeks?.[weekISO] ?? {};
 
     const template = [...(benching.template ?? [])].sort((a, b) => a.day - b.day || a.startMin - b.startMin);
@@ -59,12 +59,15 @@ Deno.serve(async (_req) => {
     let accepted = 0;
     for (const slot of template) {
       const when = `${DAY_NAMES[slot.day]} ${minLabel(slot.startMin)}–${minLabel(slot.endMin)}`;
+      const r = respBySlot[slot.id];
       if (weekOv[slot.id]?.status === "uncovered") {
         uncovered.push(`• ${when} — was ${nameOf(slot.memberId)}`);
-      } else if (respBySlot[slot.id] === "accepted") {
+      } else if (r?.reserve_status === "declined") {
+        uncovered.push(`• ${when} — ${nameOf(slot.memberId)} declined AND reserve ${nameOf(slot.reserveId)} declined`);
+      } else if (r?.status === "accepted" || r?.reserve_status === "accepted") {
         accepted++;
-      } else if (respBySlot[slot.id] === "declined") {
-        unaccepted.push(`• ${when} — ${nameOf(slot.memberId)} declined${slot.reserveId ? `, reserve ${nameOf(slot.reserveId)}` : " (no reserve!)"}`);
+      } else if (r?.status === "declined") {
+        unaccepted.push(`• ${when} — ${nameOf(slot.memberId)} declined${slot.reserveId ? `, reserve ${nameOf(slot.reserveId)} hasn't confirmed` : " (no reserve!)"}`);
       } else {
         unaccepted.push(`• ${when} — ${nameOf(slot.memberId)} hasn't accepted`);
       }

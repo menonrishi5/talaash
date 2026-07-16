@@ -188,9 +188,11 @@ function DuesAdmin() {
 
   const owedGross = (memberId) =>
     categories.reduce((sum, c) => (cellState(memberId, c) === 'unpaid' ? sum + c.amountCents : sum), 0)
+  // Unclamped: a negative net is a credit balance that carries forward
+  // instead of silently evaporating.
   const owedNet = (memberId) =>
-    Math.max(0, owedGross(memberId) + (finesDue[memberId] || 0) - (creditsByMember[memberId] || 0))
-  const totalOwed = roster.reduce((n, m) => n + owedNet(m.id), 0)
+    owedGross(memberId) + (finesDue[memberId] || 0) - (creditsByMember[memberId] || 0)
+  const totalOwed = roster.reduce((n, m) => n + Math.max(0, owedNet(m.id)), 0)
 
   return (
     <div>
@@ -340,10 +342,10 @@ function DuesAdmin() {
                       </td>
                       <td
                         className={`text-right pl-4 py-1.5 font-semibold border-t border-zinc-100 whitespace-nowrap ${net > 0 ? 'text-red-600' : 'text-emerald-600'}`}
-                        title={`${cents(gross)} dues${finesDue[m.id] ? ` + ${cents(finesDue[m.id])} fines` : ''}${credit ? ` − ${cents(credit)} credits` : ''}`}
+                        title={`${cents(gross)} dues${finesDue[m.id] ? ` + ${cents(finesDue[m.id])} fines` : ''}${credit ? ` − ${cents(credit)} credits` : ''}${net < 0 ? ' — credit carries forward' : ''}`}
                       >
-                        {net > 0 ? cents(net) : '✓'}
-                        {credit > 0 && (
+                        {net > 0 ? cents(net) : net < 0 ? `+${cents(-net)} credit` : '✓'}
+                        {credit > 0 && net >= 0 && (
                           <span className="block text-[10px] font-normal text-sky-600">
                             −{cents(credit)} credit
                           </span>
@@ -507,7 +509,14 @@ function PaymentsTable({ payments, matcher, roster }) {
                   </td>
                   <td className="py-2 pr-3 text-zinc-600">{p.description || '—'}</td>
                   <td className="py-2 pr-3 text-zinc-500">{(p.items ?? []).length}</td>
-                  <td className="py-2 text-right font-semibold text-zinc-800 whitespace-nowrap">{cents(p.amount_cents)}</td>
+                  <td className="py-2 text-right font-semibold text-zinc-800 whitespace-nowrap">
+                    {cents(p.amount_cents)}
+                    {p.refund_status === 'partial' && (
+                      <span className="block text-[10px] font-medium text-amber-700" title="Part of this payment was refunded in Zeffy — double-check this member's paid grid">
+                        partial refund
+                      </span>
+                    )}
+                  </td>
                 </tr>
               )
             })}
@@ -839,7 +848,7 @@ function MyDues() {
 
   const gross = cats.reduce((n, c) => (stateOf(c) === 'unpaid' ? n + c.amountCents : n), 0)
   const credit = donationCredit + reimbCredit
-  const net = Math.max(0, gross + finesDue - credit)
+  const net = gross + finesDue - credit // negative = credit carried forward
 
   return (
     <div>
@@ -851,10 +860,15 @@ function MyDues() {
       <Card className="mb-5">
         <div className="px-5 py-5 flex items-center gap-6 flex-wrap">
           <div>
-            <div className="text-[11px] uppercase tracking-wide text-zinc-400 font-medium">You currently owe</div>
-            <div className={`text-3xl font-black ${net > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-              {net > 0 ? cents(net) : '$0 🎉'}
+            <div className="text-[11px] uppercase tracking-wide text-zinc-400 font-medium">
+              {net < 0 ? 'Your credit balance' : 'You currently owe'}
             </div>
+            <div className={`text-3xl font-black ${net > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+              {net > 0 ? cents(net) : net < 0 ? `+${cents(-net)}` : '$0 🎉'}
+            </div>
+            {net < 0 && (
+              <div className="text-[11px] text-zinc-400">carries forward against future fees</div>
+            )}
           </div>
           {(credit > 0 || finesDue > 0) && (
             <div className="text-xs text-zinc-500">

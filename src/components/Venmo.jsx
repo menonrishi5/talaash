@@ -22,22 +22,71 @@ const CATEGORIES = [
 export default function VenmoTab() {
   const { state } = useStore()
   const [txns, setTxns] = useState(null)
+  const [reimbs, setReimbs] = useState([])
   const [importMsg, setImportMsg] = useState(null)
   const [busy, setBusy] = useState(false)
   const [query, setQuery] = useState('')
   const [dirFilter, setDirFilter] = useState('out') // out | in | all
+  const [picks, setPicks] = useState({}) // txn id -> reimbursement id (suggestions)
   const fileRef = useRef(null)
 
   const load = async () => {
-    const { data } = await supabase
-      .from('venmo_transactions')
-      .select('*')
-      .order('datetime', { ascending: false })
+    const [{ data }, { data: rb }] = await Promise.all([
+      supabase.from('venmo_transactions').select('*').order('datetime', { ascending: false }),
+      supabase.from('reimbursements').select('*').in('status', ['approved', 'paid']),
+    ])
     if (data) setTxns(data)
+    if (rb) setReimbs(rb)
   }
   useEffect(() => {
     load()
   }, [])
+
+  // What the team actually owes them: approved amount minus the dues credit.
+  const payoutCents = (r) => (r.approved_amount_cents ?? r.amount_cents) - (r.dues_credit_cents ?? 0)
+
+  // Settle a reimbursement with a specific Venmo payment: marks it paid for
+  // the transaction amount and links the two so neither matches again.
+  const applyMatch = async (txn, r) => {
+    const { error: e1 } = await supabase
+      .from('reimbursements')
+      .update({
+        status: 'paid',
+        paid_amount_cents: -txn.amount_cents,
+        paid_at: txn.datetime ?? new Date().toISOString(),
+      })
+      .eq('id', r.id)
+    if (e1) return alert('Could not mark the reimbursement paid: ' + e1.message)
+    const { error: e2 } = await supabase
+      .from('venmo_transactions')
+      .update({ reimbursement_id: r.id, category: 'Reimbursement', member_id: r.member_id })
+      .eq('id', txn.id)
+    if (e2) alert('Reimbursement marked paid, but linking the transaction failed: ' + e2.message)
+    load()
+  }
+
+  // Auto-reconcile: an outbound payment to a member whose ONE awaiting-payout
+  // reimbursement equals the amount exactly is settled automatically.
+  const autoReconcile = async (candidateTxns, matchFn) => {
+    const { data: rb } = await supabase
+      .from('reimbursements').select('*').eq('status', 'approved')
+    const open = (rb ?? []).filter((r) => r.member_id && payoutCents(r) > 0)
+    const usedReimb = new Set()
+    let applied = 0
+    for (const txn of candidateTxns) {
+      if (txn.amount_cents >= 0 || txn.reimbursement_id) continue
+      const memberId = txn.member_id ?? matchFn(txn.to_name)
+      if (!memberId) continue
+      const exact = open.filter(
+        (r) => r.member_id === memberId && payoutCents(r) === -txn.amount_cents && !usedReimb.has(r.id),
+      )
+      if (exact.length !== 1) continue // ambiguous or none -> leave for suggestions
+      usedReimb.add(exact[0].id)
+      await applyMatch(txn, exact[0])
+      applied++
+    }
+    return applied
+  }
 
   const matcher = useMemo(
     () => buildMatcher(state.roster, state.dues.contactLinks),
@@ -76,11 +125,14 @@ export default function VenmoTab() {
         const { error } = await supabase.from('venmo_transactions').upsert(prepared)
         if (error) throw error
       }
+      // Settle any reimbursements this statement clearly paid out.
+      const settled = prepared.length > 0 ? await autoReconcile(prepared, matchName) : 0
       await load()
       setImportMsg({
         kind: 'ok',
         text: `Imported ${prepared.length} new transaction${prepared.length === 1 ? '' : 's'}` +
           `${rows.length - fresh.length ? `, ${rows.length - fresh.length} already known` : ''}` +
+          `${settled ? ` · ${settled} reimbursement${settled > 1 ? 's' : ''} auto-marked paid` : ''}` +
           `${errors.length ? ` — ${errors.length} row(s) unreadable` : ''}.`,
       })
     } catch (e) {
@@ -153,6 +205,59 @@ export default function VenmoTab() {
         )}
       </Card>
 
+      {(() => {
+        // Outbound payments that look like reimbursement payouts but weren't
+        // auto-settled (off amounts, several open requests, etc.).
+        const openReimbs = reimbs.filter((r) => r.status === 'approved' && r.member_id && payoutCents(r) > 0)
+        const suggestions = (txns ?? [])
+          .filter((t) => t.amount_cents < 0 && !t.reimbursement_id)
+          .map((t) => ({ txn: t, memberId: t.member_id ?? matchName(t.to_name) }))
+          .filter((s) => s.memberId && openReimbs.some((r) => r.member_id === s.memberId))
+        if (suggestions.length === 0) return null
+        return (
+          <Card className="mb-5">
+            <CardHeader
+              title={`Possible reimbursement payouts (${suggestions.length})`}
+              subtitle="These outbound payments went to members with an approved reimbursement awaiting payout. Link them to mark the reimbursement paid."
+            />
+            <ul className="px-5 pb-5 divide-y divide-zinc-100">
+              {suggestions.map(({ txn, memberId }) => {
+                const options = openReimbs.filter((r) => r.member_id === memberId)
+                const exact = options.find((r) => payoutCents(r) === -txn.amount_cents)
+                const picked = picks[txn.id] ?? exact?.id ?? ''
+                const chosen = options.find((r) => r.id === picked)
+                return (
+                  <li key={txn.id} className="py-2 flex items-center gap-3 flex-wrap text-sm">
+                    <span className="font-medium text-zinc-800">{txn.to_name}</span>
+                    <Badge className="bg-red-50 text-red-600">−{cents(txn.amount_cents)}</Badge>
+                    <span className="text-xs text-zinc-400">
+                      {txn.datetime ? new Date(txn.datetime).toLocaleDateString() : '—'}{txn.note ? ` · ${txn.note}` : ''}
+                    </span>
+                    <div className="ml-auto flex items-center gap-2">
+                      <Select
+                        className="!w-64 !py-1.5"
+                        value={picked}
+                        onChange={(e) => setPicks({ ...picks, [txn.id]: e.target.value })}
+                      >
+                        <option value="">Link to reimbursement…</option>
+                        {options.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {cents(payoutCents(r))} owed — {r.description?.slice(0, 40)}
+                          </option>
+                        ))}
+                      </Select>
+                      <Button size="sm" variant="success" disabled={!chosen} onClick={() => applyMatch(txn, chosen)}>
+                        Mark paid
+                      </Button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </Card>
+        )
+      })()}
+
       {Object.keys(outTotals.map).length > 0 && (
         <Card className="mb-5">
           <CardHeader title={`Money out: ${cents(outTotals.total)}`} subtitle="By category — classify transactions below to refine this." />
@@ -218,7 +323,12 @@ export default function VenmoTab() {
                         <Badge className="bg-amber-50 text-amber-700 ml-1.5">{t.status}</Badge>
                       )}
                     </td>
-                    <td className="py-2 pr-3 text-zinc-600 max-w-56 truncate" title={t.note ?? ''}>{t.note || '—'}</td>
+                    <td className="py-2 pr-3 text-zinc-600 max-w-56 truncate" title={t.note ?? ''}>
+                      {t.note || '—'}
+                      {t.reimbursement_id && (
+                        <Badge className="bg-emerald-100 text-emerald-700 ml-1.5" title="Linked to a reimbursement — marked paid">↔ reimb.</Badge>
+                      )}
+                    </td>
                     <td className="py-2 pr-3">
                       <select
                         className="px-2 py-1 text-xs bg-white border border-zinc-300 rounded-lg cursor-pointer"

@@ -89,7 +89,7 @@ function MyAttendance() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         {[
-          ['Practices attended', checkins?.length ?? '—'],
+          ['Practices attended', checkins ? checkins.filter((c) => !c.no_show).length : '—'],
           ['Times late', late],
           ['Total fines', money(fined)],
           ['Outstanding', due > 0 ? money(due) : '$0 ✓'],
@@ -121,10 +121,16 @@ function MyAttendance() {
                 <span className="text-zinc-500 text-xs w-20">
                   {c.attendance_sessions?.session_date ? fmtDate(c.attendance_sessions.session_date) : '—'}
                 </span>
-                <span className="flex-1 text-zinc-700">checked in {fmtTeamTime(c.checked_at)}</span>
-                {c.mins_late > 0
-                  ? <Badge className="bg-amber-100 text-amber-800">{c.mins_late} min late</Badge>
-                  : <Badge className="bg-emerald-100 text-emerald-700">on time</Badge>}
+                <span className="flex-1 text-zinc-700">
+                  {c.no_show ? 'did not check in' : `checked in ${fmtTeamTime(c.checked_at)}`}
+                </span>
+                {c.no_show
+                  ? (Number(c.fine) > 0
+                      ? <Badge className="bg-red-100 text-red-700">no-show</Badge>
+                      : <Badge className="bg-zinc-100 text-zinc-500">excused</Badge>)
+                  : c.mins_late > 0
+                    ? <Badge className="bg-amber-100 text-amber-800">{c.mins_late} min late</Badge>
+                    : <Badge className="bg-emerald-100 text-emerald-700">on time</Badge>}
                 {Number(c.fine) > 0 && <span className="font-semibold text-red-600">{money(c.fine)}</span>}
               </li>
             ))}
@@ -383,6 +389,60 @@ function LiveSession({ session, checkins, refresh }) {
 
   const totalFines = checkins.reduce((n, c) => n + Number(c.fine), 0)
 
+  // Editors can adjust a fine without touching the check-in (waive = 0).
+  const editFine = async (c) => {
+    const input = prompt(`Fine for ${c.member_name} (0 waives it):`, Number(c.fine).toFixed(2))
+    if (input === null) return
+    const fine = Number(input)
+    if (Number.isNaN(fine) || fine < 0) return alert('Enter a valid amount.')
+    const { error } = await supabase.from('checkins').update({ fine }).eq('id', c.id)
+    if (error) alert('Could not update: ' + error.message)
+    refresh()
+  }
+
+  // Manual entry for phones that died / unlinked accounts.
+  const manualCheckIn = async () => {
+    const options = missing.map((m, i) => `${i + 1}. ${m.name}`).join('\n')
+    const pick = prompt(`Manually check in — enter a number:\n${options}`)
+    if (pick === null) return
+    const member = missing[Number(pick) - 1]
+    if (!member) return alert('No member matched that number.')
+    const now = new Date()
+    const nowMin = now.getHours() * 60 + now.getMinutes()
+    let fine = 0
+    if (session.fines_active && nowMin > session.cutoff_min + session.grace_min) {
+      fine = nowMin <= session.cutoff_min + session.tier1_until_min
+        ? Number(session.tier1_amount) : Number(session.tier2_amount)
+    }
+    const input = prompt(`Fine for ${member.name} (computed from current time):`, fine.toFixed(2))
+    if (input === null) return
+    const finalFine = Number(input)
+    if (Number.isNaN(finalFine) || finalFine < 0) return alert('Enter a valid amount.')
+    const { error } = await supabase.from('checkins').insert({
+      session_id: session.id, member_id: member.id, member_name: member.name,
+      mins_late: Math.max(0, nowMin - session.cutoff_min), fine: finalFine, no_show: false,
+    })
+    if (error) alert('Could not check them in: ' + error.message)
+    refresh()
+  }
+
+  // No-show review (after ending): fine or excuse, both keep a record.
+  const recordNoShow = async (member, fine) => {
+    const { error } = await supabase.from('checkins').insert({
+      session_id: session.id, member_id: member.id, member_name: member.name,
+      mins_late: 0, fine, no_show: true,
+    })
+    if (error) alert('Could not record: ' + error.message)
+    refresh()
+  }
+  const fineNoShow = async (member) => {
+    const input = prompt(`No-show fine for ${member.name}:`, Number(session.tier2_amount).toFixed(2))
+    if (input === null) return
+    const fine = Number(input)
+    if (Number.isNaN(fine) || fine < 0) return alert('Enter a valid amount.')
+    recordNoShow(member, fine)
+  }
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 mb-5 items-start">
       {/* Share card */}
@@ -429,9 +489,16 @@ function LiveSession({ session, checkins, refresh }) {
       {/* Check-ins */}
       <Card className="xl:col-span-2">
         <CardHeader
-          title={`Checked in (${checkins.length}/${activeRoster.length})`}
+          title={`Checked in (${checkins.filter((c) => !c.no_show).length}/${activeRoster.length})`}
           subtitle={totalFines > 0 ? `${money(totalFines)} in fines so far today` : 'No fines so far today'}
-          actions={<Button size="sm" variant="ghost" onClick={refresh}>↻ Refresh</Button>}
+          actions={
+            <div className="flex gap-2">
+              {canEdit && !ended && missing.length > 0 && (
+                <Button size="sm" onClick={manualCheckIn}>+ Manual check-in</Button>
+              )}
+              <Button size="sm" variant="ghost" onClick={refresh}>↻ Refresh</Button>
+            </div>
+          }
         />
         <div className="px-5 pb-5">
           {checkins.length === 0 ? (
@@ -451,14 +518,25 @@ function LiveSession({ session, checkins, refresh }) {
                 {checkins.map((c) => (
                   <tr key={c.id}>
                     <td className="py-2 pr-3 font-medium text-zinc-800">{c.member_name}</td>
-                    <td className="py-2 pr-3 text-zinc-600">{fmtTeamTime(c.checked_at)}</td>
+                    <td className="py-2 pr-3 text-zinc-600">{c.no_show ? '—' : fmtTeamTime(c.checked_at)}</td>
                     <td className="py-2 pr-3">
-                      {c.mins_late > 0
-                        ? <Badge className="bg-amber-100 text-amber-800">{c.mins_late} min</Badge>
-                        : <Badge className="bg-emerald-100 text-emerald-700">on time</Badge>}
+                      {c.no_show
+                        ? (Number(c.fine) > 0
+                            ? <Badge className="bg-red-100 text-red-700">no-show</Badge>
+                            : <Badge className="bg-zinc-100 text-zinc-500">no-show · excused</Badge>)
+                        : c.mins_late > 0
+                          ? <Badge className="bg-amber-100 text-amber-800">{c.mins_late} min</Badge>
+                          : <Badge className="bg-emerald-100 text-emerald-700">on time</Badge>}
                     </td>
-                    <td className="py-2 pr-3 font-semibold text-zinc-800">
+                    <td className="py-2 pr-3 font-semibold text-zinc-800 whitespace-nowrap">
                       {Number(c.fine) > 0 ? <span className="text-red-600">{money(c.fine)}</span> : '—'}
+                      {canEdit && (
+                        <button
+                          className="ml-1.5 text-zinc-300 hover:text-zinc-600 cursor-pointer text-xs"
+                          title="Adjust or waive this fine (keeps the check-in)"
+                          onClick={() => editFine(c)}
+                        >✎</button>
+                      )}
                     </td>
                     <td className="py-2 text-right">
                       {canEdit && (
@@ -474,7 +552,7 @@ function LiveSession({ session, checkins, refresh }) {
               </tbody>
             </table>
           )}
-          {missing.length > 0 && (
+          {missing.length > 0 && !ended && (
             <>
               <p className="text-[11px] uppercase tracking-wide text-zinc-400 font-medium mb-1.5">
                 Not checked in ({missing.length})
@@ -485,6 +563,25 @@ function LiveSession({ session, checkins, refresh }) {
                 ))}
               </div>
             </>
+          )}
+          {missing.length > 0 && ended && canEdit && (
+            <>
+              <p className="text-[11px] uppercase tracking-wide text-amber-700 font-medium mb-1.5">
+                ⚠ No-shows to review ({missing.length}) — fine or excuse each
+              </p>
+              <ul className="divide-y divide-zinc-100">
+                {missing.map((m) => (
+                  <li key={m.id} className="py-1.5 flex items-center gap-2 text-sm">
+                    <span className="flex-1 font-medium text-zinc-800">{m.name}</span>
+                    <Button size="sm" variant="danger" onClick={() => fineNoShow(m)}>Fine</Button>
+                    <Button size="sm" variant="ghost" onClick={() => recordNoShow(m, 0)}>Excuse</Button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {missing.length > 0 && ended && !canEdit && (
+            <p className="text-xs text-zinc-400">{missing.length} member{missing.length > 1 ? 's' : ''} didn't check in.</p>
           )}
         </div>
       </Card>
@@ -589,7 +686,7 @@ function Ledger() {
   useEffect(() => {
     ;(async () => {
       const [{ data: fines }, { data: pays }] = await Promise.all([
-        supabase.from('checkins').select('member_id, member_name, fine'),
+        supabase.from('checkins').select('member_id, member_name, fine, no_show'),
         supabase.from('payments').select('member_id, amount'),
       ])
       if (!fines) return
@@ -597,7 +694,7 @@ function Ledger() {
       const bump = (id, name) => (acc[id] = acc[id] || { id, name, attended: 0, fined: 0, paid: 0 })
       for (const c of fines) {
         const r = bump(c.member_id, c.member_name)
-        r.attended += 1
+        if (!c.no_show) r.attended += 1
         r.fined += Number(c.fine)
         r.name = c.member_name
       }

@@ -134,8 +134,9 @@ Deno.serve(async (_req) => {
         const resp = respByOcc[occ];
         const accepted = resp?.status === "accepted";
         const declined = resp?.status === "declined";
+        const reserveDeclined = (resp as { reserve_status?: string } | undefined)?.reserve_status === "declined";
         const pastDeadline = msUntil < deadlineH * 3600000;
-        const reserveOn = declined || (!accepted && pastDeadline && slot.reserveId);
+        const reserveOn = (declined || (!accepted && pastDeadline && slot.reserveId)) && !reserveDeclined;
         const onDutyId = reserveOn ? slot.reserveId! : slot.memberId;
         const when = `${DAY_NAMES[slot.day]} ${minLabel(slot.startMin)}–${minLabel(slot.endMin)}${loc}`;
 
@@ -144,7 +145,8 @@ Deno.serve(async (_req) => {
         };
 
         // accept-request: entering the 48h window, no response yet
-        if (!resp && msUntil <= 48 * 3600000) {
+        // ('pending' rows exist when only the reserve has answered)
+        if ((!resp || resp.status === "pending") && msUntil <= 48 * 3600000) {
           queue("accept-request", slot.memberId,
             `🪑 You have a benching slot ${when}. Please accept (or decline) it in Talaash HQ: ${appUrl}`);
         }

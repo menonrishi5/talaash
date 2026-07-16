@@ -1,65 +1,72 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase, fmtTeamTime } from '../supabase.js'
-import { isActive } from '../matching.js'
 
 // Public check-in page (#/checkin) — what the QR code / Slack link opens.
-// Standalone: no StoreProvider, minimal chrome, phone-first layout.
+// Check-in is tied to the signed-in account: you check in as yourself, so
+// nobody can tap in a late teammate. The password still proves presence.
 
 const money = (n) => `$${Number(n) % 1 ? Number(n).toFixed(2) : Number(n)}`
+const APP_URL = () => `${window.location.origin}${window.location.pathname}`
 
 export default function CheckIn() {
-  const [phase, setPhase] = useState('loading') // loading | none | form | done | error
+  const [phase, setPhase] = useState('loading') // loading | signin | none | closed | unlinked | form | done | error
+  const [authed, setAuthed] = useState(null) // session user
+  const [myName, setMyName] = useState(null)
   const [session, setSession] = useState(null)
-  const [roster, setRoster] = useState([])
   const [password, setPassword] = useState('')
-  const [query, setQuery] = useState('')
-  const [memberId, setMemberId] = useState(null)
   const [busy, setBusy] = useState(false)
   const [errMsg, setErrMsg] = useState(null)
   const [result, setResult] = useState(null)
 
-  useEffect(() => {
-    ;(async () => {
-      try {
-        // Login-free RPC: returns today's session (id only, no password) and
-        // the roster — the page can't read anything else.
-        const { data, error } = await supabase.rpc('get_checkin_info')
-        if (error) throw error
-        if (!data.session) {
-          setPhase('none')
-          return
-        }
-        if (data.session.ended) {
-          setPhase('closed')
-          return
-        }
-        setSession(data.session)
-        setRoster(
-          (data.roster ?? []).filter(isActive).sort((a, b) => a.name.localeCompare(b.name)),
-        )
-        setPhase('form')
-      } catch (e) {
-        console.error(e)
-        setPhase('error')
+  const boot = async () => {
+    setPhase('loading')
+    try {
+      const { data: authData } = await supabase.auth.getSession()
+      const user = authData.session?.user ?? null
+      setAuthed(user)
+      if (!user) {
+        setPhase('signin')
+        return
       }
-    })()
+      const [{ data: info, error: e1 }, { data: profile }] = await Promise.all([
+        supabase.rpc('get_checkin_info'),
+        supabase.from('profiles').select('member_id').eq('id', user.id).maybeSingle(),
+      ])
+      if (e1) throw e1
+      if (!profile?.member_id) {
+        setPhase('unlinked')
+        return
+      }
+      const me = (info.roster ?? []).find((m) => m.id === profile.member_id)
+      setMyName(me?.name ?? 'you')
+      if (!info.session) {
+        setPhase('none')
+        return
+      }
+      if (info.session.ended) {
+        setPhase('closed')
+        return
+      }
+      setSession(info.session)
+      setPhase('form')
+    } catch (e) {
+      console.error(e)
+      setPhase('error')
+    }
+  }
+
+  useEffect(() => {
+    boot()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const visible = useMemo(
-    () => roster.filter((m) => m.name.toLowerCase().includes(query.toLowerCase())),
-    [roster, query],
-  )
-  const member = roster.find((m) => m.id === memberId)
-
   const submit = async () => {
-    if (!member || !password.trim() || busy) return
+    if (!password.trim() || busy) return
     setBusy(true)
     setErrMsg(null)
     try {
       const { data, error } = await supabase.rpc('check_in', {
         p_session: session.id,
-        p_member_id: member.id,
-        p_member_name: member.name,
         p_password: password,
       })
       if (error) throw error
@@ -89,8 +96,20 @@ export default function CheckIn() {
 
         {phase === 'error' && (
           <Panel>
-            <p className="text-sm text-red-600 text-center">
-              Couldn't connect — check your internet and refresh.
+            <p className="text-sm text-red-600 text-center">Couldn't connect — check your internet and refresh.</p>
+          </Panel>
+        )}
+
+        {phase === 'signin' && <SignInPanel onSignedIn={boot} />}
+
+        {phase === 'unlinked' && (
+          <Panel>
+            <p className="text-3xl text-center mb-2">🔗</p>
+            <p className="text-sm text-zinc-600 text-center font-medium">
+              Your account isn't linked to a roster member yet.
+            </p>
+            <p className="text-xs text-zinc-400 text-center mt-1">
+              Ask a board member to link it (they can also check you in manually today).
             </p>
           </Panel>
         )}
@@ -117,6 +136,15 @@ export default function CheckIn() {
 
         {phase === 'form' && (
           <Panel>
+            <p className="text-sm text-zinc-700 mb-4 text-center">
+              Checking in as <span className="font-bold">{myName}</span>
+              <button
+                className="block mx-auto mt-0.5 text-[11px] text-zinc-400 underline cursor-pointer"
+                onClick={async () => { await supabase.auth.signOut(); boot() }}
+              >
+                not you? switch account
+              </button>
+            </p>
             <label className="block mb-4">
               <span className="block text-xs font-medium text-zinc-500 mb-1">Today's password</span>
               <input
@@ -126,46 +154,18 @@ export default function CheckIn() {
                 autoCapitalize="none"
                 autoCorrect="off"
                 onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && submit()}
               />
             </label>
-
-            <span className="block text-xs font-medium text-zinc-500 mb-1">Who are you?</span>
-            <input
-              className="w-full px-3 py-2 text-sm bg-white border border-zinc-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-400/40 mb-2 placeholder:text-zinc-400"
-              placeholder="Search your name…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <div className="max-h-64 overflow-y-auto thin-scroll rounded-xl border border-zinc-200 divide-y divide-zinc-100 mb-4 bg-white">
-              {visible.length === 0 && (
-                <p className="text-xs text-zinc-400 italic p-3">No names match — ask a board member to add you to the roster.</p>
-              )}
-              {visible.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => setMemberId(m.id)}
-                  className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left cursor-pointer transition-colors ${
-                    memberId === m.id ? 'bg-zinc-900 text-white font-semibold' : 'hover:bg-zinc-50 text-zinc-800'
-                  }`}
-                >
-                  <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-[10px] shrink-0 ${
-                    memberId === m.id ? 'bg-white text-zinc-900 border-white' : 'border-zinc-300'
-                  }`}>
-                    {memberId === m.id ? '✓' : ''}
-                  </span>
-                  {m.name}
-                </button>
-              ))}
-            </div>
 
             {errMsg && <p className="text-sm text-red-600 mb-3 text-center">{errMsg}</p>}
 
             <button
               onClick={submit}
-              disabled={!member || !password.trim() || busy}
+              disabled={!password.trim() || busy}
               className="w-full py-3 rounded-xl bg-zinc-900 text-white font-semibold text-sm hover:bg-zinc-700 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {busy ? 'Checking in…' : member ? `Check in as ${member.name}` : 'Check in'}
+              {busy ? 'Checking in…' : `Check in as ${myName}`}
             </button>
           </Panel>
         )}
@@ -206,6 +206,53 @@ export default function CheckIn() {
         <p className="text-center text-[11px] text-zinc-400 mt-4">Talaash HQ</p>
       </div>
     </div>
+  )
+}
+
+function SignInPanel({ onSignedIn }) {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+
+  const signIn = async () => {
+    if (busy) return
+    setBusy(true)
+    setErr(null)
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    setBusy(false)
+    if (error) setErr(error.message)
+    else onSignedIn()
+  }
+
+  const inputCls =
+    'w-full px-3 py-2.5 text-sm bg-white border border-zinc-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-400/40 placeholder:text-zinc-400'
+
+  return (
+    <Panel>
+      <p className="text-sm text-zinc-700 font-medium text-center mb-1">Sign in to check in</p>
+      <p className="text-xs text-zinc-400 text-center mb-4">
+        Check-in is tied to your own account — no checking in your friends 👀
+      </p>
+      <div className="space-y-3 mb-4">
+        <input type="email" className={inputCls} placeholder="Email" autoComplete="email"
+          value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input type="password" className={inputCls} placeholder="Password" autoComplete="current-password"
+          value={password} onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && signIn()} />
+      </div>
+      {err && <p className="text-sm text-red-600 mb-3 text-center">{err}</p>}
+      <button
+        onClick={signIn}
+        disabled={busy || !email || !password}
+        className="w-full py-3 rounded-xl bg-zinc-900 text-white font-semibold text-sm hover:bg-zinc-700 transition-colors cursor-pointer disabled:opacity-40"
+      >
+        {busy ? 'One sec…' : 'Sign in'}
+      </button>
+      <p className="text-[11px] text-zinc-400 text-center mt-3">
+        No account yet? <a className="underline" href={APP_URL()}>Create one here</a>, then come back.
+      </p>
+    </Panel>
   )
 }
 

@@ -44,16 +44,27 @@ export default function Benching() {
 
   const slotStatus = (slot) => overrides[slot.id]?.status ?? 'pending'
   const responseFor = (slotId) =>
-    responses.find((r) => r.week_iso === weekISO && r.slot_id === slotId)?.status
+    responses.find((r) => r.week_iso === weekISO && r.slot_id === slotId) ?? null
 
   const events = benching.template.map((slot) => {
-    // Editor attendance outcome wins; before that, reflect the member's RSVP
-    // (accept/decline) so the grid updates the moment they respond.
+    // Editor attendance outcome wins; before that, reflect RSVP state
+    // (member accept/decline, then the reserve's answer) live on the grid.
     let status = slotStatus(slot)
+    let subtitleOverride = null
     if (status === 'pending') {
       const resp = responseFor(slot.id)
-      if (resp === 'accepted') status = 'accepted'
-      else if (resp === 'declined') status = 'declined'
+      if (resp?.status === 'accepted') status = 'accepted'
+      else if (resp?.status === 'declined' || resp?.reserve_status) {
+        if (resp?.reserve_status === 'accepted') {
+          status = 'reserve'
+          subtitleOverride = `reserve accepted (${memberName(slot.reserveId)})`
+        } else if (resp?.reserve_status === 'declined') {
+          status = 'uncovered'
+          subtitleOverride = 'reserve declined too'
+        } else if (resp?.status === 'declined') {
+          status = 'declined'
+        }
+      }
     }
     const ov = overrides[slot.id]
     const meta = STATUS_META[status]
@@ -69,14 +80,14 @@ export default function Benching() {
       color: meta.color,
       dashed: status === 'pending',
       title: status === 'uncovered' ? '⚠ Uncovered' : who,
-      subtitle:
+      subtitle: subtitleOverride ?? (
         status === 'pending' ? `${memberName(slot.memberId)}${slot.reserveId ? ` · res: ${memberName(slot.reserveId)}` : ''}`
         : status === 'accepted' ? '✓ accepted'
         : status === 'declined' ? (slot.reserveId ? `declined → ${memberName(slot.reserveId)}` : 'declined')
         : status === 'reserve' ? 'reserve'
         : status === 'cover' ? 'covering'
         : status === 'uncovered' ? who
-        : null,
+        : null),
       onClick: () => setSlotModal(slot.id),
     }
   })
@@ -229,6 +240,7 @@ export default function Benching() {
           slotId={slotModal === 'new' ? null : slotModal}
           weekISO={weekISO}
           response={responses.find((r) => r.week_iso === weekISO && r.slot_id === slotModal) ?? null}
+          onResponsesChanged={loadResponses}
           onClose={() => setSlotModal(null)}
         />
       )}
@@ -268,15 +280,16 @@ function MyBenching({ responses, onChanged }) {
 
   if (occurrences.length === 0) return null
 
-  const respond = async (occ, status) => {
+  // Goes through an RPC that validates the caller holds the role, so the
+  // reserve can respond too.
+  const respond = async (occ, role, status) => {
     const key = `${occ.wkISO}:${occ.slot.id}`
     setBusy(key)
-    const { error } = await supabase.from('slot_responses').upsert(
-      { week_iso: occ.wkISO, slot_id: occ.slot.id, member_id: occ.slot.memberId, status },
-      { onConflict: 'week_iso,slot_id' },
-    )
+    const { data, error } = await supabase.rpc('respond_to_slot', {
+      p_week: occ.wkISO, p_slot: occ.slot.id, p_role: role, p_status: status,
+    })
     setBusy(null)
-    if (error) alert('Could not save: ' + error.message)
+    if (error || !data?.ok) alert('Could not save: ' + (error?.message ?? data?.error))
     else onChanged()
   }
 
@@ -307,7 +320,7 @@ function MyBenching({ responses, onChanged }) {
                   <>
                     <Badge className="bg-emerald-100 text-emerald-700">✓ accepted</Badge>
                     <Button size="sm" variant="ghost" className="text-red-500" disabled={busy === key}
-                      onClick={() => respond(occ, 'declined')}>
+                      onClick={() => respond(occ, 'primary', 'declined')}>
                       Can't make it anymore
                     </Button>
                   </>
@@ -321,16 +334,36 @@ function MyBenching({ responses, onChanged }) {
                   </Badge>
                 ) : (
                   <>
-                    <Button size="sm" variant="success" disabled={busy === key} onClick={() => respond(occ, 'accepted')}>
+                    <Button size="sm" variant="success" disabled={busy === key} onClick={() => respond(occ, 'primary', 'accepted')}>
                       ✓ Accept
                     </Button>
-                    <Button size="sm" variant="danger" disabled={busy === key} onClick={() => respond(occ, 'declined')}>
+                    <Button size="sm" variant="danger" disabled={busy === key} onClick={() => respond(occ, 'primary', 'declined')}>
                       Can't make it
                     </Button>
                   </>
                 )
               ) : occ.reserveOn ? (
-                <Badge className="bg-sky-100 text-sky-700">🔁 you're up — please cover this</Badge>
+                occ.resp?.reserve_status === 'accepted' ? (
+                  <>
+                    <Badge className="bg-sky-100 text-sky-700">✓ covering as reserve</Badge>
+                    <Button size="sm" variant="ghost" className="text-red-500" disabled={busy === key}
+                      onClick={() => respond(occ, 'reserve', 'declined')}>
+                      Can't anymore
+                    </Button>
+                  </>
+                ) : occ.resp?.reserve_status === 'declined' ? (
+                  <Badge className="bg-red-100 text-red-700">declined — slot needs cover</Badge>
+                ) : (
+                  <>
+                    <Badge className="bg-sky-100 text-sky-700">🔁 you're up</Badge>
+                    <Button size="sm" variant="success" disabled={busy === key} onClick={() => respond(occ, 'reserve', 'accepted')}>
+                      ✓ I'll cover it
+                    </Button>
+                    <Button size="sm" variant="danger" disabled={busy === key} onClick={() => respond(occ, 'reserve', 'declined')}>
+                      Can't cover
+                    </Button>
+                  </>
+                )
               ) : (
                 <Badge className="bg-zinc-100 text-zinc-500">
                   on standby{occ.resp?.status === 'accepted' ? ` — ${nameOf(occ.slot.memberId)} accepted` : ''}
@@ -558,7 +591,7 @@ function ImportModal({ onClose }) {
 }
 
 // Attendance + editing for one slot in a given week.
-function SlotModal({ slotId, weekISO, response, onClose }) {
+function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
   const { state, setSlotStatus, addTemplateSlot, updateTemplateSlot, removeTemplateSlot } = useStore()
   const { canEdit } = useAuth()
   const slot = state.benching.template.find((s) => s.id === slotId) ?? null
@@ -586,11 +619,21 @@ function SlotModal({ slotId, weekISO, response, onClose }) {
     onClose()
   }
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!form.memberId || form.endMin <= form.startMin) return
     const data = { ...form, reserveId: form.reserveId || null }
-    if (isNew) addTemplateSlot(data)
-    else updateTemplateSlot(slot.id, data)
+    if (isNew) {
+      addTemplateSlot(data)
+    } else {
+      updateTemplateSlot(slot.id, data)
+      // Reassigned? The old person's accept/decline and their reminder
+      // history don't transfer — clear both so the new person gets asked.
+      if (form.memberId !== slot.memberId || form.reserveId !== (slot.reserveId ?? '')) {
+        await supabase.from('slot_responses').delete().eq('slot_id', slot.id)
+        await supabase.from('notification_log').delete().like('occ_key', `%${slot.id}`)
+        onResponsesChanged?.()
+      }
+    }
     onClose()
   }
 
@@ -614,12 +657,20 @@ function SlotModal({ slotId, weekISO, response, onClose }) {
             </p>
             <p>
               <span className="text-zinc-500">Member response:</span>{' '}
-              {response ? (
+              {response && response.status !== 'pending' ? (
                 <Badge className={response.status === 'accepted' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}>
                   {response.status}
                 </Badge>
               ) : (
                 <Badge className="bg-zinc-100 text-zinc-500">no response yet</Badge>
+              )}
+              {response?.reserve_status && (
+                <>
+                  {' '}<span className="text-zinc-500">· Reserve:</span>{' '}
+                  <Badge className={response.reserve_status === 'accepted' ? 'bg-sky-100 text-sky-700' : 'bg-red-100 text-red-700'}>
+                    {response.reserve_status}
+                  </Badge>
+                </>
               )}
             </p>
           </div>

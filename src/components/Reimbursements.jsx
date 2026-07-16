@@ -164,15 +164,16 @@ function EditModal({ r, memberName, onClose }) {
     const amount = Math.round(Number(form.amount) * 100)
     if (!amount || amount <= 0 || !form.description.trim()) return
     setBusy(true)
+    const patch = {
+      description: form.description.trim(),
+      category: form.category || null,
+      purchase_date: form.purchase_date || null,
+      member_id: form.member_id || null,
+    }
+    if (r.status === 'pending') patch.amount_cents = amount // locked after a decision
     const { error } = await supabase
       .from('reimbursements')
-      .update({
-        amount_cents: amount,
-        description: form.description.trim(),
-        category: form.category || null,
-        purchase_date: form.purchase_date || null,
-        member_id: form.member_id || null,
-      })
+      .update(patch)
       .eq('id', r.id)
     setBusy(false)
     if (error) return alert('Could not save: ' + error.message)
@@ -188,8 +189,9 @@ function EditModal({ r, memberName, onClose }) {
         </Select>
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Amount ($)">
-          <input type="number" min="0" step="0.01" className={inputCls} value={form.amount}
+        <Field label={r.status === 'pending' ? 'Amount ($)' : 'Amount ($) — locked'}>
+          <input type="number" min="0" step="0.01" disabled={r.status !== 'pending'}
+            className={`${inputCls} disabled:bg-zinc-50 disabled:text-zinc-400`} value={form.amount}
             onChange={(e) => setForm({ ...form, amount: e.target.value })} />
         </Field>
         <Field label="Date of purchase">
@@ -208,8 +210,8 @@ function EditModal({ r, memberName, onClose }) {
       </Field>
       {r.status !== 'pending' && (
         <p className="text-[11px] text-amber-700 mb-3">
-          This request is already {r.status}. Editing the amount doesn't change the approved/credited
-          figures — use Re-review to redo the decision.
+          This request is already {r.status} — the amount is locked so it can't drift from the
+          approved/credited figures. Use Re-review to change the money side.
         </p>
       )}
       <div className="flex justify-end gap-2">

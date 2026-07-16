@@ -98,7 +98,19 @@ export default function Roster() {
                           size="sm"
                           variant="ghost"
                           className="text-red-500 hover:text-red-600"
-                          onClick={() => {
+                          onClick={async () => {
+                            // Members with financial history must be deactivated, not
+                            // deleted — deleting orphans their fines and payments.
+                            const [c1, c2, c3] = await Promise.all([
+                              supabase.from('checkins').select('id', { count: 'exact', head: true }).eq('member_id', m.id),
+                              supabase.from('payments').select('id', { count: 'exact', head: true }).eq('member_id', m.id),
+                              supabase.from('reimbursements').select('id', { count: 'exact', head: true }).eq('member_id', m.id),
+                            ])
+                            const n = (c1.count ?? 0) + (c2.count ?? 0) + (c3.count ?? 0)
+                            if (n > 0) {
+                              alert(`${m.name} has ${n} financial record${n > 1 ? 's' : ''} (fines, payments, or reimbursements). Deactivate them instead so their money history stays visible.`)
+                              return
+                            }
                             if (confirm(`Remove ${m.name} from the roster? They'll be pulled from all segments.`))
                               removeMember(m.id)
                           }}

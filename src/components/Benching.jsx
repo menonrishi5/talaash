@@ -121,9 +121,16 @@ export default function Benching() {
         </div>
       </div>
 
-      {memberId && (
+      {memberId ? (
         <MyBenching responses={responses} onChanged={loadResponses} />
-      )}
+      ) : canEdit ? (
+        <Card className="mb-5">
+          <div className="px-5 py-4 text-sm text-zinc-500">
+            You're benching too? Link your account to your roster member in{' '}
+            <span className="font-medium text-zinc-700">Roster → App access</span> to accept your own slots and check in.
+          </div>
+        </Card>
+      ) : null}
 
       <CalendarSubscribe />
 
@@ -278,8 +285,6 @@ function MyBenching({ responses, onChanged }) {
   }
   occurrences.sort((a, b) => a.start - b.start)
 
-  if (occurrences.length === 0) return null
-
   // Goes through an RPC that validates the caller holds the role, so the
   // reserve can respond too.
   const respond = async (occ, role, status) => {
@@ -299,6 +304,11 @@ function MyBenching({ responses, onChanged }) {
         title="My benching"
         subtitle={`Accept your slots so the room's covered — unaccepted slots pass to the reserve ${deadlineH}h before start.`}
       />
+      {occurrences.length === 0 && (
+        <p className="px-5 pb-5 text-sm text-zinc-400 italic">
+          No benching slots assigned to you in the next couple of weeks.
+        </p>
+      )}
       <ul className="px-5 pb-5 divide-y divide-zinc-100">
         {occurrences.map((occ) => {
           const key = `${occ.wkISO}:${occ.slot.id}`

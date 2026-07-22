@@ -4,7 +4,7 @@ import { useAuth } from '../auth.jsx'
 import { supabase } from '../supabase.js'
 import { uid } from '../lib.js'
 import { buildMatcher, buyerKey, buyerName, isActive } from '../matching.js'
-import { Button, Card, CardHeader, Modal, Badge, Select, EmptyState, inputCls } from './ui.jsx'
+import { Button, Card, CardHeader, Modal, Badge, Select, EmptyState, ViewToggle, inputCls } from './ui.jsx'
 import VenmoTab from './Venmo.jsx'
 
 // Dues tracker driven by the Zeffy payment mirror — the app version of the
@@ -18,11 +18,23 @@ const catId = (c) => c.id ?? c.rateId
 const isFineCandidate = (p) => JSON.stringify(p.raw ?? '').toLowerCase().includes('fine')
 
 export default function Dues() {
-  const { canEdit } = useAuth()
+  const { canEdit, memberId } = useAuth()
+  const [view, setView] = useState('team')
   // Viewers get a private "my dues" view — the database only lets them read
   // their own payment rows and their own slice of the dues doc.
   if (!canEdit) return <MyDues />
-  return <DuesAdmin />
+  // Editors are dancers too: default to the admin grid, but let them flip to
+  // their own personal dues (only if their account is linked to a member).
+  return (
+    <>
+      {memberId && (
+        <div className="flex justify-end mb-4">
+          <ViewToggle value={view} onChange={setView} options={[['team', 'Team'], ['mine', 'My dues']]} />
+        </div>
+      )}
+      {view === 'mine' ? <MyDues /> : <DuesAdmin />}
+    </>
+  )
 }
 
 function DuesAdmin() {

@@ -5,7 +5,7 @@ import { useAuth } from '../auth.jsx'
 import { supabase, todayTeamISO, fmtTeamTime } from '../supabase.js'
 import { minToLabel, fmtDate } from '../lib.js'
 import { isActive, buildMatcher } from '../matching.js'
-import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, inputCls } from './ui.jsx'
+import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, ViewToggle, inputCls } from './ui.jsx'
 
 const money = (n) => `$${Number(n) % 1 ? Number(n).toFixed(2) : Number(n)}`
 
@@ -27,11 +27,23 @@ const timeOpts = []
 for (let m = 16 * 60; m <= 23 * 60; m += 15) timeOpts.push(m)
 
 export default function Attendance() {
-  const { canEdit } = useAuth()
+  const { canEdit, memberId } = useAuth()
+  const [view, setView] = useState('team')
   // Members see their own attendance + fines; the database only returns
   // their own rows anyway.
   if (!canEdit) return <MyAttendance />
-  return <AttendanceAdmin />
+  // Editors are dancers too: admin dashboard by default, with a flip to
+  // their own check-in history + fines (if their account is linked).
+  return (
+    <>
+      {memberId && (
+        <div className="flex justify-end mb-4">
+          <ViewToggle value={view} onChange={setView} options={[['team', 'Team'], ['mine', 'My attendance']]} />
+        </div>
+      )}
+      {view === 'mine' ? <MyAttendance /> : <AttendanceAdmin />}
+    </>
+  )
 }
 
 // ---- viewer view ----

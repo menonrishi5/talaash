@@ -2,6 +2,26 @@ import { useEffect } from 'react'
 
 // Small shared UI kit — buttons, modal, inputs, badges, cards.
 
+// Segmented control. Lets editors (who are also dancers) flip between the
+// admin view and their own personal member view.
+export function ViewToggle({ value, onChange, options }) {
+  return (
+    <div className="inline-flex p-0.5 bg-zinc-100 rounded-xl border border-zinc-200">
+      {options.map(([val, label]) => (
+        <button
+          key={val}
+          onClick={() => onChange(val)}
+          className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+            value === val ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function Button({ variant = 'secondary', size = 'md', className = '', ...props }) {
   const variants = {
     primary: 'bg-zinc-900 text-white hover:bg-zinc-700 shadow-sm',

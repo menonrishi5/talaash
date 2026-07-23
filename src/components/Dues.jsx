@@ -210,8 +210,8 @@ function DuesAdmin() {
     <div>
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-zinc-900 mb-1">Dues & Payments</h1>
-          <p className="text-sm text-zinc-500">
+          <h1 className="text-xl font-bold text-ink mb-1">Dues & Payments</h1>
+          <p className="text-sm text-muted">
             Live from Zeffy — {succeeded.length} payments mirrored{payments?.[0] ? `, newest ${new Date(payments[0].created).toLocaleDateString()}` : ''}.
           </p>
         </div>
@@ -238,7 +238,7 @@ function DuesAdmin() {
             key={id}
             onClick={() => setTab(id)}
             className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer ${
-              tab === id ? 'bg-zinc-900 text-white' : 'bg-white border border-zinc-200 text-zinc-600 hover:border-zinc-400'
+              tab === id ? 'bg-accent text-accent-ink' : 'bg-surface border border-line text-muted hover:border-line-strong'
             }`}
           >
             {label}
@@ -249,8 +249,8 @@ function DuesAdmin() {
       {syncMsg && (
         <div className={`mb-4 rounded-2xl border px-5 py-3 text-sm ${
           syncMsg.startsWith('Sync failed')
-            ? 'bg-red-50 border-red-200 text-red-700'
-            : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+            ? 'bg-bad-soft border-bad/25 text-bad'
+            : 'bg-good-soft border-good/25 text-good'
         }`}>
           {syncMsg}
         </div>
@@ -304,15 +304,15 @@ function DuesAdmin() {
             <table className="text-sm border-separate border-spacing-0">
               <thead>
                 <tr>
-                  <th className="sticky left-0 bg-white text-left text-[11px] uppercase tracking-wide text-zinc-400 font-medium pb-2 pr-4">Member</th>
+                  <th className="sticky left-0 bg-surface text-left text-[11px] uppercase tracking-wide text-faint font-medium pb-2 pr-4">Member</th>
                   {categories.map((c) => (
-                    <th key={catId(c)} className="text-center text-[11px] uppercase tracking-wide text-zinc-400 font-medium pb-2 px-2 whitespace-nowrap">
+                    <th key={catId(c)} className="text-center text-[11px] uppercase tracking-wide text-faint font-medium pb-2 px-2 whitespace-nowrap">
                       {c.name}{!c.rateId && <span title="Manual category (not from Zeffy)"> ✍</span>}
-                      <div className="text-zinc-300 normal-case">{cents(c.amountCents)}</div>
+                      <div className="text-faint normal-case">{cents(c.amountCents)}</div>
                     </th>
                   ))}
-                  <th className="text-center text-[11px] uppercase tracking-wide text-zinc-400 font-medium pb-2 px-2">Fines</th>
-                  <th className="text-right text-[11px] uppercase tracking-wide text-zinc-400 font-medium pb-2 pl-4">Owed</th>
+                  <th className="text-center text-[11px] uppercase tracking-wide text-faint font-medium pb-2 px-2">Fines</th>
+                  <th className="text-right text-[11px] uppercase tracking-wide text-faint font-medium pb-2 pl-4">Owed</th>
                 </tr>
               </thead>
               <tbody>
@@ -322,43 +322,43 @@ function DuesAdmin() {
                   const net = owedNet(m.id)
                   return (
                     <tr key={m.id}>
-                      <td className={`sticky left-0 bg-white py-1.5 pr-4 font-medium whitespace-nowrap border-t border-zinc-100 ${isActive(m) ? 'text-zinc-800' : 'text-zinc-400'}`}>
+                      <td className={`sticky left-0 bg-surface py-1.5 pr-4 font-medium whitespace-nowrap border-t border-line ${isActive(m) ? 'text-ink' : 'text-faint'}`}>
                         {m.name}
-                        {!isActive(m) && <Badge className="bg-amber-50 text-amber-700 ml-1.5">inactive</Badge>}
+                        {!isActive(m) && <Badge className="bg-warn-soft text-warn ml-1.5">inactive</Badge>}
                       </td>
                       {categories.map((c) => {
                         const st = cellState(m.id, c)
                         const label = {
-                          'auto-paid': ['✓', 'bg-emerald-100 text-emerald-700', 'Paid (from Zeffy)'],
-                          paid: ['✓', 'bg-violet-100 text-violet-700', 'Paid (manual override)'],
-                          exempt: ['—', 'bg-zinc-100 text-zinc-400', 'Exempt'],
-                          unpaid: ['✗', 'bg-red-50 text-red-400', 'Not paid'],
+                          'auto-paid': ['✓', 'bg-good-soft text-good', 'Paid (from Zeffy)'],
+                          paid: ['✓', 'bg-special-soft text-special', 'Paid (manual override)'],
+                          exempt: ['—', 'bg-subtle text-faint', 'Exempt'],
+                          unpaid: ['✗', 'bg-bad-soft text-bad', 'Not paid'],
                         }[st]
                         return (
-                          <td key={catId(c)} className="text-center px-2 py-1.5 border-t border-zinc-100">
+                          <td key={catId(c)} className="text-center px-2 py-1.5 border-t border-line">
                             <button
                               disabled={!canEdit}
                               title={label[2]}
                               onClick={() => cycleCell(m.id, c)}
-                              className={`w-7 h-7 rounded-lg text-xs font-bold ${label[1]} ${canEdit ? 'cursor-pointer hover:ring-2 hover:ring-zinc-300' : ''}`}
+                              className={`w-7 h-7 rounded-lg text-xs font-bold ${label[1]} ${canEdit ? 'cursor-pointer hover:ring-2 hover:ring-line-strong' : ''}`}
                             >
                               {label[0]}
                             </button>
                           </td>
                         )
                       })}
-                      <td className="text-center px-2 py-1.5 border-t border-zinc-100 whitespace-nowrap">
+                      <td className="text-center px-2 py-1.5 border-t border-line whitespace-nowrap">
                         {finesDue[m.id]
-                          ? <span className="text-xs font-semibold text-amber-700" title="Outstanding attendance fines (fined minus payments)">{cents(finesDue[m.id])}</span>
-                          : <span className="text-zinc-200 text-xs">—</span>}
+                          ? <span className="text-xs font-semibold text-warn" title="Outstanding attendance fines (fined minus payments)">{cents(finesDue[m.id])}</span>
+                          : <span className="text-faint text-xs">—</span>}
                       </td>
                       <td
-                        className={`text-right pl-4 py-1.5 font-semibold border-t border-zinc-100 whitespace-nowrap ${net > 0 ? 'text-red-600' : 'text-emerald-600'}`}
+                        className={`text-right pl-4 py-1.5 font-semibold border-t border-line whitespace-nowrap ${net > 0 ? 'text-bad' : 'text-good'}`}
                         title={`${cents(gross)} dues${finesDue[m.id] ? ` + ${cents(finesDue[m.id])} fines` : ''}${credit ? ` − ${cents(credit)} credits` : ''}${net < 0 ? ' — credit carries forward' : ''}`}
                       >
                         {net > 0 ? cents(net) : net < 0 ? `+${cents(-net)} credit` : '✓'}
                         {credit > 0 && net >= 0 && (
-                          <span className="block text-[10px] font-normal text-sky-600">
+                          <span className="block text-[10px] font-normal text-info">
                             −{cents(credit)} credit
                           </span>
                         )}
@@ -394,11 +394,11 @@ function CampaignsModal({ campaigns, onClose }) {
 
   return (
     <Modal title="Zeffy campaigns" onClose={onClose}>
-      <p className="text-xs text-zinc-500 mb-3">
+      <p className="text-xs text-muted mb-3">
         Unchecked campaigns are ignored everywhere — the paid grid, donations, and category
         discovery. Uncheck old seasons (e.g. Talaash 6.0 Dues) to isolate the current membership.
       </p>
-      <ul className="divide-y divide-zinc-100">
+      <ul className="divide-y divide-line">
         {campaigns.map((c) => (
           <li key={c.id} className="py-2 flex items-center gap-3 text-sm">
             <input
@@ -407,12 +407,12 @@ function CampaignsModal({ campaigns, onClose }) {
               checked={!excluded[c.id]}
               onChange={() => toggle(c.id)}
             />
-            <span className="flex-1 text-zinc-800">{c.title}</span>
-            <Badge className="bg-zinc-100 text-zinc-600">{c.count} payments</Badge>
+            <span className="flex-1 text-ink">{c.title}</span>
+            <Badge className="bg-subtle text-muted">{c.count} payments</Badge>
           </li>
         ))}
         {campaigns.length === 0 && (
-          <li className="py-2 text-sm text-zinc-400 italic">Nothing synced yet.</li>
+          <li className="py-2 text-sm text-faint italic">Nothing synced yet.</li>
         )}
       </ul>
     </Modal>
@@ -479,7 +479,7 @@ function PaymentsTable({ payments, matcher, roster }) {
       <div className="px-5 pb-5 overflow-x-auto thin-scroll">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-400">
+            <tr className="text-left text-[11px] uppercase tracking-wide text-faint">
               <th className="pb-2 pr-3 font-medium">Date</th>
               <th className="pb-2 pr-3 font-medium">Buyer</th>
               <th className="pb-2 pr-3 font-medium">Matched member</th>
@@ -488,17 +488,17 @@ function PaymentsTable({ payments, matcher, roster }) {
               <th className="pb-2 font-medium text-right">Amount</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100">
+          <tbody className="divide-y divide-line">
             {visible.map((p) => {
               const memberId = matcher(p)
               const key = buyerKey(p)
               const isLinked = !!state.dues.contactLinks?.[key]
               return (
                 <tr key={p.id}>
-                  <td className="py-2 pr-3 text-zinc-500 whitespace-nowrap">{new Date(p.created).toLocaleDateString()}</td>
-                  <td className="py-2 pr-3 font-medium text-zinc-800 whitespace-nowrap">
+                  <td className="py-2 pr-3 text-muted whitespace-nowrap">{new Date(p.created).toLocaleDateString()}</td>
+                  <td className="py-2 pr-3 font-medium text-ink whitespace-nowrap">
                     {buyerName(p)}
-                    {p.buyer_email && <span className="block text-[11px] font-normal text-zinc-400">{p.buyer_email}</span>}
+                    {p.buyer_email && <span className="block text-[11px] font-normal text-faint">{p.buyer_email}</span>}
                   </td>
                   <td className="py-2 pr-3 whitespace-nowrap">
                     <button
@@ -513,18 +513,18 @@ function PaymentsTable({ payments, matcher, roster }) {
                       className={canEdit ? 'cursor-pointer' : ''}
                     >
                       {memberId
-                        ? <Badge className={isLinked ? 'bg-violet-100 text-violet-700' : 'bg-emerald-100 text-emerald-700'}>
+                        ? <Badge className={isLinked ? 'bg-special-soft text-special' : 'bg-good-soft text-good'}>
                             {memberName(memberId)}{isLinked ? ' ✎' : ''}
                           </Badge>
-                        : <Badge className="bg-amber-100 text-amber-800">unmatched</Badge>}
+                        : <Badge className="bg-warn-soft text-warn">unmatched</Badge>}
                     </button>
                   </td>
-                  <td className="py-2 pr-3 text-zinc-600">{p.description || '—'}</td>
-                  <td className="py-2 pr-3 text-zinc-500">{(p.items ?? []).length}</td>
-                  <td className="py-2 text-right font-semibold text-zinc-800 whitespace-nowrap">
+                  <td className="py-2 pr-3 text-muted">{p.description || '—'}</td>
+                  <td className="py-2 pr-3 text-muted">{(p.items ?? []).length}</td>
+                  <td className="py-2 text-right font-semibold text-ink whitespace-nowrap">
                     {cents(p.amount_cents)}
                     {p.refund_status === 'partial' && (
-                      <span className="block text-[10px] font-medium text-amber-700" title="Part of this payment was refunded in Zeffy — double-check this member's paid grid">
+                      <span className="block text-[10px] font-medium text-warn" title="Part of this payment was refunded in Zeffy — double-check this member's paid grid">
                         partial refund
                       </span>
                     )}
@@ -533,7 +533,7 @@ function PaymentsTable({ payments, matcher, roster }) {
               )
             })}
             {visible.length === 0 && (
-              <tr><td colSpan="6" className="py-6 text-center text-sm text-zinc-400 italic">No payments match.</td></tr>
+              <tr><td colSpan="6" className="py-6 text-center text-sm text-faint italic">No payments match.</td></tr>
             )}
           </tbody>
         </table>
@@ -541,7 +541,7 @@ function PaymentsTable({ payments, matcher, roster }) {
 
       {relink && (
         <Modal title={`Match payments from ${relink.buyer}`} onClose={() => setRelink(null)}>
-          <p className="text-xs text-zinc-500 mb-3">
+          <p className="text-xs text-muted mb-3">
             Applies to every payment from this buyer. "Automatic" uses full name → unique last
             name → unique first name.
           </p>
@@ -585,12 +585,12 @@ function UnmatchedCard({ unmatched }) {
         title={`Needs a match (${unmatched.length})`}
         subtitle="Buyers that couldn't be auto-matched (unknown name, or a name several members share). Link once; it sticks for all their payments and can be changed later in the Zeffy payments tab."
       />
-      <ul className="px-5 pb-5 divide-y divide-zinc-100">
+      <ul className="px-5 pb-5 divide-y divide-line">
         {unmatched.map((u) => (
           <li key={u.key} className="py-2 flex items-center gap-3 text-sm flex-wrap">
-            <span className="font-medium text-zinc-800">{u.name}</span>
-            {u.email && <span className="text-xs text-zinc-400">{u.email}</span>}
-            <Badge className="bg-zinc-100 text-zinc-600">{u.count} payment{u.count > 1 ? 's' : ''} · {cents(u.total)}</Badge>
+            <span className="font-medium text-ink">{u.name}</span>
+            {u.email && <span className="text-xs text-faint">{u.email}</span>}
+            <Badge className="bg-subtle text-muted">{u.count} payment{u.count > 1 ? 's' : ''} · {cents(u.total)}</Badge>
             <div className="ml-auto flex items-center gap-2">
               <Select
                 className="!w-52 !py-1.5"
@@ -633,17 +633,17 @@ function DonationsCard({ donations }) {
         title={`Donations (${donations.length} · ${cents(total)})`}
         subtitle="Zeffy donations that aren't fines. By default they're just donations — optionally credit one against the donor's dues."
       />
-      <ul className="px-5 pb-5 divide-y divide-zinc-100">
+      <ul className="px-5 pb-5 divide-y divide-line">
         {donations.map(({ payment: p, donationCents, memberId }) => (
           <li key={p.id} className="py-2 flex items-center gap-3 text-sm flex-wrap">
-            <span className="font-medium text-zinc-800">{buyerName(p)}</span>
-            <Badge className="bg-sky-100 text-sky-700">{cents(donationCents)}</Badge>
-            <span className="text-xs text-zinc-400">
+            <span className="font-medium text-ink">{buyerName(p)}</span>
+            <Badge className="bg-info-soft text-info">{cents(donationCents)}</Badge>
+            <span className="text-xs text-faint">
               {new Date(p.created).toLocaleDateString()} · {p.description || 'no campaign'}
               {memberId ? ` · matched to ${memberName(memberId)}` : ' · unmatched'}
             </span>
             {canEdit && (
-              <label className={`ml-auto flex items-center gap-1.5 text-xs ${memberId ? 'text-zinc-600 cursor-pointer' : 'text-zinc-300'}`}>
+              <label className={`ml-auto flex items-center gap-1.5 text-xs ${memberId ? 'text-muted cursor-pointer' : 'text-faint'}`}>
                 <input
                   type="checkbox"
                   disabled={!memberId}
@@ -738,7 +738,7 @@ function CategoriesModal({ payments, onClose }) {
 
   return (
     <Modal title="Fee categories" onClose={onClose} wide>
-      <p className="text-xs text-zinc-500 mb-3">
+      <p className="text-xs text-muted mb-3">
         Zeffy rates found in your payments are listed first — tick the required fees, name them
         like your sheet columns, confirm the amount. Add manual categories (✍) for cash/Venmo
         fees; those are checked off by hand in the grid. New fees created in Zeffy appear here
@@ -746,7 +746,7 @@ function CategoriesModal({ payments, onClose }) {
       </p>
       <div className="space-y-1.5 max-h-96 overflow-y-auto thin-scroll">
         {rows.map((r, i) => (
-          <div key={r.id} className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${r.include ? 'border-zinc-300 bg-white' : 'border-zinc-200 bg-zinc-50 opacity-70'}`}>
+          <div key={r.id} className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${r.include ? 'border-line-strong bg-surface' : 'border-line bg-subtle opacity-70'}`}>
             <input type="checkbox" checked={r.include} onChange={(e) => update(i, { include: e.target.checked })} />
             <input
               className={`${inputCls} !w-40 !py-1.5`}
@@ -754,20 +754,20 @@ function CategoriesModal({ payments, onClose }) {
               value={r.name}
               onChange={(e) => update(i, { name: e.target.value })}
             />
-            <span className="text-xs text-zinc-400">$</span>
+            <span className="text-xs text-faint">$</span>
             <input
               type="number" step="0.01" min="0"
               className={`${inputCls} !w-24 !py-1.5`}
               value={r.amountCents / 100}
               onChange={(e) => update(i, { amountCents: Math.round(Number(e.target.value) * 100) })}
             />
-            <span className="text-[11px] text-zinc-400 ml-auto text-right">
+            <span className="text-[11px] text-faint ml-auto text-right">
               {r.rateId
                 ? <>
                     {r.count} paid · typ. {cents(r.typicalAmount)}
                     {r.campaigns && <span className="block truncate max-w-48" title={r.campaigns}>{r.campaigns}</span>}
                   </>
-                : <Badge className="bg-zinc-100 text-zinc-500">manual ✍</Badge>}
+                : <Badge className="bg-subtle text-muted">manual ✍</Badge>}
             </span>
           </div>
         ))}
@@ -816,13 +816,13 @@ function MyDues() {
   }, [])
 
   if (!info) {
-    return <Card><div className="p-8 text-sm text-zinc-400">Loading your dues…</div></Card>
+    return <Card><div className="p-8 text-sm text-faint">Loading your dues…</div></Card>
   }
 
   if (!info.linked) {
     return (
       <div>
-        <h1 className="text-xl font-bold text-zinc-900 mb-1">My Dues</h1>
+        <h1 className="text-xl font-bold text-ink mb-1">My Dues</h1>
         <Card className="mt-4">
           <EmptyState
             icon={<span className="text-lg">🔗</span>}
@@ -865,27 +865,27 @@ function MyDues() {
   return (
     <div>
       <div className="mb-5">
-        <h1 className="text-xl font-bold text-zinc-900 mb-1">My Dues</h1>
-        <p className="text-sm text-zinc-500">Only you (and the board) can see this.</p>
+        <h1 className="text-xl font-bold text-ink mb-1">My Dues</h1>
+        <p className="text-sm text-muted">Only you (and the board) can see this.</p>
       </div>
 
       <Card className="mb-5">
         <div className="px-5 py-5 flex items-center gap-6 flex-wrap">
           <div>
-            <div className="text-[11px] uppercase tracking-wide text-zinc-400 font-medium">
+            <div className="text-[11px] uppercase tracking-wide text-faint font-medium">
               {net < 0 ? 'Your credit balance' : 'You currently owe'}
             </div>
-            <div className={`text-3xl font-black ${net > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+            <div className={`text-3xl font-black ${net > 0 ? 'text-bad' : 'text-good'}`}>
               {net > 0 ? cents(net) : net < 0 ? `+${cents(-net)}` : '$0 🎉'}
             </div>
             {net < 0 && (
-              <div className="text-[11px] text-zinc-400">carries forward against future fees</div>
+              <div className="text-[11px] text-faint">carries forward against future fees</div>
             )}
           </div>
           {(credit > 0 || finesDue > 0) && (
-            <div className="text-xs text-zinc-500">
+            <div className="text-xs text-muted">
               {cents(gross)} in unpaid fees
-              {finesDue > 0 && <span className="block text-amber-700">+ {cents(finesDue)} attendance fines</span>}
+              {finesDue > 0 && <span className="block text-warn">+ {cents(finesDue)} attendance fines</span>}
               {donationCredit > 0 && <span className="block">− {cents(donationCredit)} donation credit</span>}
               {reimbCredit > 0 && <span className="block">− {cents(reimbCredit)} reimbursement credit</span>}
             </div>
@@ -896,18 +896,18 @@ function MyDues() {
       {cats.length > 0 && (
         <Card className="mb-5">
           <CardHeader title="Fee checklist" />
-          <ul className="px-5 pb-5 divide-y divide-zinc-100">
+          <ul className="px-5 pb-5 divide-y divide-line">
             {cats.map((c) => {
               const st = stateOf(c)
               return (
                 <li key={c.id ?? c.rateId} className="py-2 flex items-center gap-3 text-sm">
-                  <span className="flex-1 text-zinc-800">{c.name}</span>
-                  <span className="text-zinc-400 text-xs">{cents(c.amountCents)}</span>
+                  <span className="flex-1 text-ink">{c.name}</span>
+                  <span className="text-faint text-xs">{cents(c.amountCents)}</span>
                   {st === 'unpaid'
-                    ? <Badge className="bg-red-50 text-red-500">not paid</Badge>
+                    ? <Badge className="bg-bad-soft text-bad">not paid</Badge>
                     : st === 'exempt'
-                      ? <Badge className="bg-zinc-100 text-zinc-500">exempt</Badge>
-                      : <Badge className="bg-emerald-100 text-emerald-700">paid ✓</Badge>}
+                      ? <Badge className="bg-subtle text-muted">exempt</Badge>
+                      : <Badge className="bg-good-soft text-good">paid ✓</Badge>}
                 </li>
               )
             })}
@@ -918,14 +918,14 @@ function MyDues() {
       <Card>
         <CardHeader title={`My payments (${mine.length})`} subtitle="Everything Zeffy has from you." />
         {mine.length === 0 ? (
-          <p className="px-5 pb-5 text-sm text-zinc-400 italic">No payments found for you yet.</p>
+          <p className="px-5 pb-5 text-sm text-faint italic">No payments found for you yet.</p>
         ) : (
-          <ul className="px-5 pb-5 divide-y divide-zinc-100">
+          <ul className="px-5 pb-5 divide-y divide-line">
             {mine.map((p) => (
               <li key={p.id} className="py-2 flex items-center gap-3 text-sm">
-                <span className="text-zinc-500 text-xs w-20">{new Date(p.created).toLocaleDateString()}</span>
-                <span className="flex-1 text-zinc-700">{p.description || 'Payment'}</span>
-                <span className="font-semibold text-zinc-800">{cents(p.amount_cents)}</span>
+                <span className="text-muted text-xs w-20">{new Date(p.created).toLocaleDateString()}</span>
+                <span className="flex-1 text-ink">{p.description || 'Payment'}</span>
+                <span className="font-semibold text-ink">{cents(p.amount_cents)}</span>
               </li>
             ))}
           </ul>

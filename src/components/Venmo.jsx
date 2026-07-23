@@ -199,7 +199,7 @@ export default function VenmoTab() {
           }
         />
         {importMsg && (
-          <p className={`px-5 pb-4 text-sm ${importMsg.kind === 'error' ? 'text-red-600' : 'text-emerald-700'}`}>
+          <p className={`px-5 pb-4 text-sm ${importMsg.kind === 'error' ? 'text-bad' : 'text-good'}`}>
             {importMsg.text}
           </p>
         )}
@@ -220,7 +220,7 @@ export default function VenmoTab() {
               title={`Possible reimbursement payouts (${suggestions.length})`}
               subtitle="These outbound payments went to members with an approved reimbursement awaiting payout. Link them to mark the reimbursement paid."
             />
-            <ul className="px-5 pb-5 divide-y divide-zinc-100">
+            <ul className="px-5 pb-5 divide-y divide-line">
               {suggestions.map(({ txn, memberId }) => {
                 const options = openReimbs.filter((r) => r.member_id === memberId)
                 const exact = options.find((r) => payoutCents(r) === -txn.amount_cents)
@@ -228,9 +228,9 @@ export default function VenmoTab() {
                 const chosen = options.find((r) => r.id === picked)
                 return (
                   <li key={txn.id} className="py-2 flex items-center gap-3 flex-wrap text-sm">
-                    <span className="font-medium text-zinc-800">{txn.to_name}</span>
-                    <Badge className="bg-red-50 text-red-600">−{cents(txn.amount_cents)}</Badge>
-                    <span className="text-xs text-zinc-400">
+                    <span className="font-medium text-ink">{txn.to_name}</span>
+                    <Badge className="bg-red-50 text-bad">−{cents(txn.amount_cents)}</Badge>
+                    <span className="text-xs text-faint">
                       {txn.datetime ? new Date(txn.datetime).toLocaleDateString() : '—'}{txn.note ? ` · ${txn.note}` : ''}
                     </span>
                     <div className="ml-auto flex items-center gap-2">
@@ -263,7 +263,7 @@ export default function VenmoTab() {
           <CardHeader title={`Money out: ${cents(outTotals.total)}`} subtitle="By category — classify transactions below to refine this." />
           <div className="px-5 pb-5 flex flex-wrap gap-2">
             {Object.entries(outTotals.map).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
-              <Badge key={cat} className={cat === 'Uncategorized' ? 'bg-amber-100 text-amber-800' : 'bg-zinc-100 text-zinc-700'}>
+              <Badge key={cat} className={cat === 'Uncategorized' ? 'bg-warn-soft text-warn' : 'bg-subtle text-ink'}>
                 {cat}: {cents(amt)}
               </Badge>
             ))}
@@ -291,7 +291,7 @@ export default function VenmoTab() {
           }
         />
         {txns === null ? (
-          <p className="px-5 pb-5 text-sm text-zinc-400">Loading…</p>
+          <p className="px-5 pb-5 text-sm text-faint">Loading…</p>
         ) : visible.length === 0 ? (
           <EmptyState
             icon={<span className="text-lg">💸</span>}
@@ -302,7 +302,7 @@ export default function VenmoTab() {
           <div className="px-5 pb-5 overflow-x-auto thin-scroll">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-400">
+                <tr className="text-left text-[11px] uppercase tracking-wide text-faint">
                   <th className="pb-2 pr-3 font-medium">Date</th>
                   <th className="pb-2 pr-3 font-medium">Counterparty</th>
                   <th className="pb-2 pr-3 font-medium">Note</th>
@@ -311,27 +311,27 @@ export default function VenmoTab() {
                   <th className="pb-2 font-medium text-right">Amount</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100">
+              <tbody className="divide-y divide-line">
                 {visible.map((t) => (
                   <tr key={t.id}>
-                    <td className="py-2 pr-3 text-zinc-500 whitespace-nowrap">
+                    <td className="py-2 pr-3 text-muted whitespace-nowrap">
                       {t.datetime ? new Date(t.datetime).toLocaleDateString() : '—'}
                     </td>
-                    <td className="py-2 pr-3 font-medium text-zinc-800 whitespace-nowrap">
+                    <td className="py-2 pr-3 font-medium text-ink whitespace-nowrap">
                       {t.amount_cents < 0 ? t.to_name : t.from_name}
                       {t.status && t.status !== 'Complete' && (
-                        <Badge className="bg-amber-50 text-amber-700 ml-1.5">{t.status}</Badge>
+                        <Badge className="bg-warn-soft text-warn ml-1.5">{t.status}</Badge>
                       )}
                     </td>
-                    <td className="py-2 pr-3 text-zinc-600 max-w-56 truncate" title={t.note ?? ''}>
+                    <td className="py-2 pr-3 text-muted max-w-56 truncate" title={t.note ?? ''}>
                       {t.note || '—'}
                       {t.reimbursement_id && (
-                        <Badge className="bg-emerald-100 text-emerald-700 ml-1.5" title="Linked to a reimbursement — marked paid">↔ reimb.</Badge>
+                        <Badge className="bg-good-soft text-good ml-1.5" title="Linked to a reimbursement — marked paid">↔ reimb.</Badge>
                       )}
                     </td>
                     <td className="py-2 pr-3">
                       <select
-                        className="px-2 py-1 text-xs bg-white border border-zinc-300 rounded-lg cursor-pointer"
+                        className="px-2 py-1 text-xs bg-surface border border-line-strong rounded-lg cursor-pointer"
                         value={t.category ?? ''}
                         onChange={(e) => update(t.id, { category: e.target.value || null })}
                       >
@@ -341,7 +341,7 @@ export default function VenmoTab() {
                     </td>
                     <td className="py-2 pr-3">
                       <select
-                        className="px-2 py-1 text-xs bg-white border border-zinc-300 rounded-lg cursor-pointer"
+                        className="px-2 py-1 text-xs bg-surface border border-line-strong rounded-lg cursor-pointer"
                         value={t.member_id ?? ''}
                         onChange={(e) => update(t.id, { member_id: e.target.value || null })}
                       >
@@ -349,7 +349,7 @@ export default function VenmoTab() {
                         {state.roster.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                       </select>
                     </td>
-                    <td className={`py-2 text-right font-semibold whitespace-nowrap ${t.amount_cents < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                    <td className={`py-2 text-right font-semibold whitespace-nowrap ${t.amount_cents < 0 ? 'text-bad' : 'text-good'}`}>
                       {t.amount_cents < 0 ? '−' : '+'}{cents(t.amount_cents)}
                     </td>
                   </tr>

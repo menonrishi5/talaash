@@ -11,13 +11,13 @@ import { isActive } from '../matching.js'
 import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, inputCls } from './ui.jsx'
 
 const STATUS_META = {
-  pending: { label: 'Awaiting response', color: '#a1a1aa', badge: 'bg-zinc-100 text-zinc-600' },
-  accepted: { label: 'Accepted', color: '#22c55e', badge: 'bg-green-100 text-green-700' },
-  declined: { label: 'Declined', color: '#f59e0b', badge: 'bg-amber-100 text-amber-800' },
-  primary: { label: 'Benched (confirmed)', color: '#10b981', badge: 'bg-emerald-100 text-emerald-700' },
-  reserve: { label: 'Reserve covering', color: '#0ea5e9', badge: 'bg-sky-100 text-sky-700' },
-  cover: { label: 'Manual cover', color: '#8b5cf6', badge: 'bg-violet-100 text-violet-700' },
-  uncovered: { label: 'NOT COVERED', color: '#ef4444', badge: 'bg-red-100 text-red-700' },
+  pending: { label: 'Awaiting response', color: '#a1a1aa', badge: 'bg-subtle text-muted' },
+  accepted: { label: 'Accepted', color: '#22c55e', badge: 'bg-good-soft text-good' },
+  declined: { label: 'Declined', color: '#f59e0b', badge: 'bg-warn-soft text-warn' },
+  primary: { label: 'Benched (confirmed)', color: '#10b981', badge: 'bg-good-soft text-good' },
+  reserve: { label: 'Reserve covering', color: '#0ea5e9', badge: 'bg-info-soft text-info' },
+  cover: { label: 'Manual cover', color: '#8b5cf6', badge: 'bg-special-soft text-special' },
+  uncovered: { label: 'NOT COVERED', color: '#ef4444', badge: 'bg-bad-soft text-bad' },
 }
 
 export default function Benching() {
@@ -107,8 +107,8 @@ export default function Benching() {
     <div>
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-zinc-900 mb-1">Benching</h1>
-          <p className="text-sm text-zinc-500">Room reservations — who's holding the space, and when.</p>
+          <h1 className="text-xl font-bold text-ink mb-1">Benching</h1>
+          <p className="text-sm text-muted">Room reservations — who's holding the space, and when.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" onClick={() => setStatsOpen(true)}>Hour tracker</Button>
@@ -125,9 +125,9 @@ export default function Benching() {
         <MyBenching responses={responses} onChanged={loadResponses} />
       ) : canEdit ? (
         <Card className="mb-5">
-          <div className="px-5 py-4 text-sm text-zinc-500">
+          <div className="px-5 py-4 text-sm text-muted">
             You're benching too? Link your account to your roster member in{' '}
-            <span className="font-medium text-zinc-700">Roster → App access</span> to accept your own slots and check in.
+            <span className="font-medium text-ink">Roster → App access</span> to accept your own slots and check in.
           </div>
         </Card>
       ) : null}
@@ -137,26 +137,26 @@ export default function Benching() {
       {/* Location */}
       <Card className="mb-5">
         <div className="px-5 py-3.5 flex items-center gap-3 flex-wrap">
-          <span className="text-sm font-medium text-zinc-500">Practice location:</span>
+          <span className="text-sm font-medium text-muted">Practice location:</span>
           {benching.locations.length === 0 ? (
-            <span className="text-sm text-zinc-400 italic">none yet</span>
+            <span className="text-sm text-faint italic">none yet</span>
           ) : (
             <LocationSelect />
           )}
           {canEdit && <Button size="sm" variant="ghost" onClick={() => setLocOpen(true)}>Manage locations</Button>}
           {benching.activeLocation && (
-            <Badge className="bg-zinc-900 text-white ml-auto">📍 {benching.activeLocation}</Badge>
+            <Badge className="bg-accent-soft text-accent ml-auto">📍 {benching.activeLocation}</Badge>
           )}
         </div>
       </Card>
 
       {/* Warning banners */}
       {uncovered.length > 0 && (
-        <div className="mb-4 rounded-2xl bg-red-50 border border-red-200 px-5 py-3.5">
-          <p className="text-sm font-semibold text-red-700 mb-1">
+        <div className="mb-4 rounded-2xl bg-bad-soft border border-bad/25 px-5 py-3.5">
+          <p className="text-sm font-semibold text-bad mb-1">
             ⚠ {uncovered.length} slot{uncovered.length > 1 ? 's' : ''} not covered this week
           </p>
-          <ul className="text-xs text-red-600 space-y-0.5">
+          <ul className="text-xs text-bad space-y-0.5">
             {uncovered.map((s) => (
               <li key={s.id}>
                 {DAY_NAMES[s.day]} {minToLabel(s.startMin)} – {minToLabel(s.endMin)} (was {memberName(s.memberId)}) —{' '}
@@ -173,8 +173,8 @@ export default function Benching() {
           return (m && !isActive(m)) || (res && !isActive(res))
         })
         return inactiveSlots.length > 0 ? (
-          <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 px-5 py-3">
-            <p className="text-xs text-amber-800">
+          <div className="mb-4 rounded-2xl bg-warn-soft border border-warn/25 px-5 py-3">
+            <p className="text-xs text-warn">
               <span className="font-semibold">{inactiveSlots.length} slot{inactiveSlots.length > 1 ? 's' : ''} assigned to an inactive member</span> — {' '}
               {inactiveSlots.map((s, i) => (
                 <span key={s.id}>
@@ -191,8 +191,8 @@ export default function Benching() {
       })()}
 
       {pastPending.length > 0 && (
-        <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 px-5 py-3">
-          <p className="text-xs text-amber-800">
+        <div className="mb-4 rounded-2xl bg-warn-soft border border-warn/25 px-5 py-3">
+          <p className="text-xs text-warn">
             <span className="font-semibold">{pastPending.length} past slot{pastPending.length > 1 ? 's' : ''} unconfirmed</span> — confirm attendance so hours count toward the requirement.
           </p>
         </div>
@@ -201,7 +201,7 @@ export default function Benching() {
       {/* Week grid */}
       <Card className="mb-5">
         <div className="flex items-center justify-between px-5 pt-4">
-          <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 flex-wrap">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted flex-wrap">
             {Object.entries(STATUS_META).map(([k, v]) => (
               <span key={k} className="inline-flex items-center gap-1 mr-2">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ background: v.color }} />
@@ -213,7 +213,7 @@ export default function Benching() {
             <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, -7))}>‹</Button>
             <Button size="sm" onClick={() => setWeekISO(weekStartISO())}>Today</Button>
             <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, 7))}>›</Button>
-            <span className="text-sm font-semibold text-zinc-700 w-36 text-right">{fmtWeekRange(weekISO)}</span>
+            <span className="text-sm font-semibold text-ink w-36 text-right">{fmtWeekRange(weekISO)}</span>
           </div>
         </div>
         {benching.template.length === 0 ? (
@@ -305,21 +305,21 @@ function MyBenching({ responses, onChanged }) {
         subtitle={`Accept your slots so the room's covered — unaccepted slots pass to the reserve ${deadlineH}h before start.`}
       />
       {occurrences.length === 0 && (
-        <p className="px-5 pb-5 text-sm text-zinc-400 italic">
+        <p className="px-5 pb-5 text-sm text-faint italic">
           No benching slots assigned to you in the next couple of weeks.
         </p>
       )}
-      <ul className="px-5 pb-5 divide-y divide-zinc-100">
+      <ul className="px-5 pb-5 divide-y divide-line">
         {occurrences.map((occ) => {
           const key = `${occ.wkISO}:${occ.slot.id}`
           return (
             <li key={key} className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
               <div className="flex-1 min-w-44">
-                <span className="font-medium text-zinc-800">
+                <span className="font-medium text-ink">
                   {DAY_NAMES[occ.slot.day]} {occ.dateISO.slice(5)} · {minToLabel(occ.slot.startMin)} – {minToLabel(occ.slot.endMin)}
                 </span>
                 {!occ.mine && (
-                  <span className="block text-xs text-zinc-400">
+                  <span className="block text-xs text-faint">
                     you're the reserve for {nameOf(occ.slot.memberId)}
                   </span>
                 )}
@@ -328,18 +328,18 @@ function MyBenching({ responses, onChanged }) {
               {occ.mine ? (
                 occ.resp?.status === 'accepted' ? (
                   <>
-                    <Badge className="bg-emerald-100 text-emerald-700">✓ accepted</Badge>
-                    <Button size="sm" variant="ghost" className="text-red-500" disabled={busy === key}
+                    <Badge className="bg-good-soft text-good">✓ accepted</Badge>
+                    <Button size="sm" variant="ghost" className="text-bad" disabled={busy === key}
                       onClick={() => respond(occ, 'primary', 'declined')}>
                       Can't make it anymore
                     </Button>
                   </>
                 ) : occ.resp?.status === 'declined' ? (
-                  <Badge className="bg-zinc-100 text-zinc-600">
+                  <Badge className="bg-subtle text-muted">
                     declined{occ.slot.reserveId ? ` — passed to ${nameOf(occ.slot.reserveId)}` : ''}
                   </Badge>
                 ) : occ.reserveOn ? (
-                  <Badge className="bg-amber-100 text-amber-800">
+                  <Badge className="bg-warn-soft text-warn">
                     deadline passed — {occ.slot.reserveId ? `${nameOf(occ.slot.reserveId)} called` : 'uncovered'}
                   </Badge>
                 ) : (
@@ -355,17 +355,17 @@ function MyBenching({ responses, onChanged }) {
               ) : occ.reserveOn ? (
                 occ.resp?.reserve_status === 'accepted' ? (
                   <>
-                    <Badge className="bg-sky-100 text-sky-700">✓ covering as reserve</Badge>
-                    <Button size="sm" variant="ghost" className="text-red-500" disabled={busy === key}
+                    <Badge className="bg-info-soft text-info">✓ covering as reserve</Badge>
+                    <Button size="sm" variant="ghost" className="text-bad" disabled={busy === key}
                       onClick={() => respond(occ, 'reserve', 'declined')}>
                       Can't anymore
                     </Button>
                   </>
                 ) : occ.resp?.reserve_status === 'declined' ? (
-                  <Badge className="bg-red-100 text-red-700">declined — slot needs cover</Badge>
+                  <Badge className="bg-bad-soft text-bad">declined — slot needs cover</Badge>
                 ) : (
                   <>
-                    <Badge className="bg-sky-100 text-sky-700">🔁 you're up</Badge>
+                    <Badge className="bg-info-soft text-info">🔁 you're up</Badge>
                     <Button size="sm" variant="success" disabled={busy === key} onClick={() => respond(occ, 'reserve', 'accepted')}>
                       ✓ I'll cover it
                     </Button>
@@ -375,7 +375,7 @@ function MyBenching({ responses, onChanged }) {
                   </>
                 )
               ) : (
-                <Badge className="bg-zinc-100 text-zinc-500">
+                <Badge className="bg-subtle text-muted">
                   on standby{occ.resp?.status === 'accepted' ? ` — ${nameOf(occ.slot.memberId)} accepted` : ''}
                 </Badge>
               )}
@@ -410,7 +410,7 @@ function CalendarSubscribe() {
         subtitle="Practices and your benching slots, auto-updating in Google or Apple Calendar."
       />
       <div className="px-5 pb-5 flex items-center gap-2 flex-wrap">
-        <code className="flex-1 min-w-64 text-xs bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 truncate" title={base}>
+        <code className="flex-1 min-w-64 text-xs bg-subtle border border-line rounded-lg px-3 py-2 truncate" title={base}>
           {base}
         </code>
         <Button size="sm" onClick={() => { navigator.clipboard.writeText(base); setCopied(true); setTimeout(() => setCopied(false), 2000) }}>
@@ -418,7 +418,7 @@ function CalendarSubscribe() {
         </Button>
         <Button size="sm" variant="primary" onClick={() => window.open(webcal, '_blank')}>Add to calendar</Button>
       </div>
-      <p className="px-5 pb-4 -mt-2 text-[11px] text-zinc-400">
+      <p className="px-5 pb-4 -mt-2 text-[11px] text-faint">
         This link is personal to you — don't share it. In Google Calendar use “Other calendars → From URL”.
       </p>
     </Card>
@@ -451,7 +451,7 @@ function NotificationSettings() {
       <div className="px-5 pb-5">
         <div className="flex items-end gap-2 mb-4 flex-wrap">
           <label className="flex-1 min-w-56">
-            <span className="block text-xs font-medium text-zinc-500 mb-1">Weekly digest Slack channel ID</span>
+            <span className="block text-xs font-medium text-muted mb-1">Weekly digest Slack channel ID</span>
             <input
               className={inputCls}
               placeholder="e.g. C0123ABCD (invite the bot to it first)"
@@ -463,24 +463,24 @@ function NotificationSettings() {
         </div>
         {misses.length > 0 ? (
           <>
-            <p className="text-[11px] uppercase tracking-wide text-zinc-400 font-medium mb-1.5">
+            <p className="text-[11px] uppercase tracking-wide text-faint font-medium mb-1.5">
               Recent undelivered notifications
             </p>
-            <ul className="text-xs text-zinc-600 space-y-1">
+            <ul className="text-xs text-muted space-y-1">
               {misses.map((m) => (
                 <li key={m.id} className="flex gap-2">
-                  <span className="text-zinc-400">{new Date(m.sent_at).toLocaleDateString()}</span>
+                  <span className="text-faint">{new Date(m.sent_at).toLocaleDateString()}</span>
                   <span className="font-medium">{m.kind}</span>
-                  <span className="text-red-600">{m.detail}</span>
+                  <span className="text-bad">{m.detail}</span>
                 </li>
               ))}
             </ul>
-            <p className="text-[11px] text-zinc-400 mt-2">
+            <p className="text-[11px] text-faint mt-2">
               Usually means that member's app email doesn't match their Slack email, or their account isn't linked to a roster member.
             </p>
           </>
         ) : (
-          <p className="text-xs text-zinc-400 italic">No delivery problems logged.</p>
+          <p className="text-xs text-faint italic">No delivery problems logged.</p>
         )}
       </div>
     </Card>
@@ -493,7 +493,7 @@ function LocationSelect() {
   return (
     <Select
       disabled={!canEdit}
-      className="!w-56 disabled:bg-zinc-50"
+      className="!w-56 disabled:bg-subtle"
       value={state.benching.activeLocation ?? ''}
       onChange={(e) => setBenching({ activeLocation: e.target.value || null })}
     >
@@ -524,15 +524,15 @@ function LocationsModal({ onClose }) {
         />
         <Button variant="primary" onClick={add}>Add</Button>
       </div>
-      <ul className="divide-y divide-zinc-100">
+      <ul className="divide-y divide-line">
         {state.benching.locations.map((l) => (
           <li key={l} className="flex items-center justify-between py-2 text-sm">
-            <span className="text-zinc-800">{l}</span>
-            <Button size="sm" variant="ghost" className="text-red-500" onClick={() => removeLocation(l)}>Remove</Button>
+            <span className="text-ink">{l}</span>
+            <Button size="sm" variant="ghost" className="text-bad" onClick={() => removeLocation(l)}>Remove</Button>
           </li>
         ))}
         {state.benching.locations.length === 0 && (
-          <li className="py-2 text-sm text-zinc-400 italic">No locations yet.</li>
+          <li className="py-2 text-sm text-faint italic">No locations yet.</li>
         )}
       </ul>
     </Modal>
@@ -565,9 +565,9 @@ function ImportModal({ onClose }) {
 
   return (
     <Modal title="Import benching sheet" onClose={onClose} wide>
-      <p className="text-xs text-zinc-500 mb-2">
+      <p className="text-xs text-muted mb-2">
         Paste rows from your sheet — commas or straight from Google Sheets (tabs). One slot per line:{' '}
-        <code className="bg-zinc-100 px-1 py-0.5 rounded">Day, Start, End, Member, Reserve</code>.
+        <code className="bg-subtle px-1 py-0.5 rounded">Day, Start, End, Member, Reserve</code>.
         The day carries down to following lines, so you can leave it off after the first row of each day.
         Times without AM/PM before 8 are treated as PM. New names are added to the roster automatically.
       </p>
@@ -579,14 +579,14 @@ function ImportModal({ onClose }) {
       />
       <div className="mt-3 text-xs">
         {parsed.rows.length > 0 && (
-          <p className="text-emerald-700 font-medium">✓ {parsed.rows.length} slot{parsed.rows.length > 1 ? 's' : ''} ready to import</p>
+          <p className="text-good font-medium">✓ {parsed.rows.length} slot{parsed.rows.length > 1 ? 's' : ''} ready to import</p>
         )}
         {parsed.errors.map((e, i) => (
-          <p key={i} className="text-red-600">✗ {e}</p>
+          <p key={i} className="text-bad">✗ {e}</p>
         ))}
       </div>
       <div className="flex justify-between items-center mt-4">
-        <p className="text-[11px] text-zinc-400 max-w-xs">
+        <p className="text-[11px] text-faint max-w-xs">
           Importing replaces the weekly template. Confirmed hours already earned are kept.
         </p>
         <div className="flex gap-2">
@@ -657,27 +657,27 @@ function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
     >
       {!isNew && !edit && (
         <>
-          <div className="rounded-xl bg-zinc-50 border border-zinc-200 px-4 py-3 mb-4 text-sm space-y-1">
-            <p><span className="text-zinc-500">Assigned:</span> <span className="font-semibold text-zinc-800">{memberName(slot.memberId)}</span></p>
-            <p><span className="text-zinc-500">Reserve:</span> <span className="font-medium text-zinc-700">{slot.reserveId ? memberName(slot.reserveId) : 'none'}</span></p>
+          <div className="rounded-xl bg-subtle border border-line px-4 py-3 mb-4 text-sm space-y-1">
+            <p><span className="text-muted">Assigned:</span> <span className="font-semibold text-ink">{memberName(slot.memberId)}</span></p>
+            <p><span className="text-muted">Reserve:</span> <span className="font-medium text-ink">{slot.reserveId ? memberName(slot.reserveId) : 'none'}</span></p>
             <p>
-              <span className="text-zinc-500">This week ({fmtWeekRange(weekISO)}):</span>{' '}
+              <span className="text-muted">This week ({fmtWeekRange(weekISO)}):</span>{' '}
               <Badge className={STATUS_META[status].badge}>{STATUS_META[status].label}</Badge>
               {status === 'cover' && <span className="ml-1 font-medium">{memberName(ov.coverMemberId)}</span>}
             </p>
             <p>
-              <span className="text-zinc-500">Member response:</span>{' '}
+              <span className="text-muted">Member response:</span>{' '}
               {response && response.status !== 'pending' ? (
-                <Badge className={response.status === 'accepted' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}>
+                <Badge className={response.status === 'accepted' ? 'bg-good-soft text-good' : 'bg-bad-soft text-bad'}>
                   {response.status}
                 </Badge>
               ) : (
-                <Badge className="bg-zinc-100 text-zinc-500">no response yet</Badge>
+                <Badge className="bg-subtle text-muted">no response yet</Badge>
               )}
               {response?.reserve_status && (
                 <>
-                  {' '}<span className="text-zinc-500">· Reserve:</span>{' '}
-                  <Badge className={response.reserve_status === 'accepted' ? 'bg-sky-100 text-sky-700' : 'bg-red-100 text-red-700'}>
+                  {' '}<span className="text-muted">· Reserve:</span>{' '}
+                  <Badge className={response.reserve_status === 'accepted' ? 'bg-info-soft text-info' : 'bg-bad-soft text-bad'}>
                     {response.reserve_status}
                   </Badge>
                 </>
@@ -686,13 +686,13 @@ function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
           </div>
 
           {canEdit && (<>
-          <p className="text-xs font-medium text-zinc-500 mb-2">Attendance for this week</p>
+          <p className="text-xs font-medium text-muted mb-2">Attendance for this week</p>
           <div className="space-y-2">
             <Button variant="success" className="w-full" onClick={() => mark('primary')}>
               ✓ {memberName(slot.memberId)} benched
             </Button>
             {slot.reserveId && (
-              <Button className="w-full !border-sky-300 !text-sky-700 hover:!bg-sky-50" onClick={() => mark('reserve')}>
+              <Button className="w-full !border-info/40 !text-info hover:!bg-info-soft" onClick={() => mark('reserve')}>
                 ⇄ Can't make it — reserve {memberName(slot.reserveId)} benched
               </Button>
             )}
@@ -715,12 +715,12 @@ function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
             )}
           </div>
 
-          <div className="flex justify-between mt-5 pt-3 border-t border-zinc-100">
+          <div className="flex justify-between mt-5 pt-3 border-t border-line">
             <Button size="sm" variant="ghost" onClick={() => setEdit(true)}>Edit slot</Button>
             <Button
               size="sm"
               variant="ghost"
-              className="text-red-500"
+              className="text-bad"
               onClick={() => {
                 if (confirm('Delete this slot from the weekly template?')) {
                   removeTemplateSlot(slot.id)
@@ -819,23 +819,23 @@ function StatsModal({ onClose }) {
   return (
     <Modal title="Benching hour tracker" onClose={onClose} wide>
       <div className="flex items-center gap-2 mb-4">
-        <span className="text-xs text-zinc-500">Requirement:</span>
+        <span className="text-xs text-muted">Requirement:</span>
         <input
           type="number"
           min="0"
           disabled={!canEdit}
-          className="w-20 px-2 py-1 text-sm border border-zinc-300 rounded-lg disabled:bg-zinc-50"
+          className="w-20 px-2 py-1 text-sm border border-line-strong rounded-lg disabled:bg-subtle"
           value={threshold}
           onChange={(e) => setBenching({ threshold: Number(e.target.value) || 0 })}
         />
-        <span className="text-xs text-zinc-500">hours — all confirmed hours (normal, reserve, cover) count.</span>
+        <span className="text-xs text-muted">hours — all confirmed hours (normal, reserve, cover) count.</span>
       </div>
       {rows.length === 0 ? (
-        <p className="text-sm text-zinc-400 italic">Roster is empty.</p>
+        <p className="text-sm text-faint italic">Roster is empty.</p>
       ) : (
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-400">
+            <tr className="text-left text-[11px] uppercase tracking-wide text-faint">
               <th className="pb-2 pr-3 font-medium">Member</th>
               <th className="pb-2 pr-3 font-medium">Normal</th>
               <th className="pb-2 pr-3 font-medium">Reserve</th>
@@ -844,28 +844,28 @@ function StatsModal({ onClose }) {
               <th className="pb-2 font-medium">Progress</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100">
+          <tbody className="divide-y divide-line">
             {rows.map(({ m, primary, reserve, cover, total }) => {
               const pct = threshold > 0 ? Math.min((total / 60 / threshold) * 100, 100) : 100
               const met = total / 60 >= threshold
               return (
                 <tr key={m.id}>
-                  <td className="py-2 pr-3 font-medium text-zinc-800">{m.name}</td>
-                  <td className="py-2 pr-3 text-zinc-600">{durationLabel(primary)}</td>
-                  <td className="py-2 pr-3 text-zinc-600">{durationLabel(reserve)}</td>
-                  <td className="py-2 pr-3 text-zinc-600">{durationLabel(cover)}</td>
-                  <td className="py-2 pr-3 font-semibold text-zinc-800">{durationLabel(total)}</td>
+                  <td className="py-2 pr-3 font-medium text-ink">{m.name}</td>
+                  <td className="py-2 pr-3 text-muted">{durationLabel(primary)}</td>
+                  <td className="py-2 pr-3 text-muted">{durationLabel(reserve)}</td>
+                  <td className="py-2 pr-3 text-muted">{durationLabel(cover)}</td>
+                  <td className="py-2 pr-3 font-semibold text-ink">{durationLabel(total)}</td>
                   <td className="py-2 w-40">
                     <div className="flex items-center gap-2">
-                      <div className="flex-1 h-2 rounded-full bg-zinc-100 overflow-hidden">
+                      <div className="flex-1 h-2 rounded-full bg-subtle overflow-hidden">
                         <div
-                          className={`h-full rounded-full ${met ? 'bg-emerald-500' : 'bg-zinc-400'}`}
+                          className={`h-full rounded-full ${met ? 'bg-good' : 'bg-faint'}`}
                           style={{ width: `${pct}%` }}
                         />
                       </div>
                       {met
-                        ? <Badge className="bg-emerald-100 text-emerald-700">met</Badge>
-                        : <span className="text-[11px] text-zinc-400 whitespace-nowrap">{Math.max(threshold - total / 60, 0).toFixed(1)}h left</span>}
+                        ? <Badge className="bg-good-soft text-good">met</Badge>
+                        : <span className="text-[11px] text-faint whitespace-nowrap">{Math.max(threshold - total / 60, 0).toFixed(1)}h left</span>}
                     </div>
                   </td>
                 </tr>

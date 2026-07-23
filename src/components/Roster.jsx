@@ -27,8 +27,8 @@ export default function Roster() {
 
   return (
     <div>
-      <h1 className="text-xl font-bold text-zinc-900 mb-1">Team Roster</h1>
-      <p className="text-sm text-zinc-500 mb-5">
+      <h1 className="text-xl font-bold text-ink mb-1">Team Roster</h1>
+      <p className="text-sm text-muted mb-5">
         Everyone here is selectable in segments, benching, and attendance.
       </p>
 
@@ -60,10 +60,10 @@ export default function Roster() {
                   : 'An editor can add the team here.'}
               />
             ) : (
-              <ul className="divide-y divide-zinc-100">
+              <ul className="divide-y divide-line">
                 {state.roster.map((m) => (
                   <li key={m.id} className={`flex items-center gap-3 py-2.5 ${isActive(m) ? '' : 'opacity-60'}`}>
-                    <div className="w-8 h-8 rounded-full bg-zinc-200 text-zinc-600 flex items-center justify-center text-xs font-semibold shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-subtle text-muted flex items-center justify-center text-xs font-semibold shrink-0">
                       {m.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}
                     </div>
                     {editing === m.id ? (
@@ -77,11 +77,11 @@ export default function Roster() {
                         onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
                       />
                     ) : (
-                      <span className="flex-1 text-sm font-medium text-zinc-800">{m.name}</span>
+                      <span className="flex-1 text-sm font-medium text-ink">{m.name}</span>
                     )}
-                    {!isActive(m) && <Badge className="bg-amber-100 text-amber-800">inactive</Badge>}
+                    {!isActive(m) && <Badge className="bg-warn-soft text-warn">inactive</Badge>}
                     {segCount[m.id] ? (
-                      <Badge className="bg-zinc-100 text-zinc-600">{segCount[m.id]} segment{segCount[m.id] > 1 ? 's' : ''}</Badge>
+                      <Badge className="bg-subtle text-muted">{segCount[m.id]} segment{segCount[m.id] > 1 ? 's' : ''}</Badge>
                     ) : null}
                     {canEdit && (
                       <>
@@ -97,7 +97,7 @@ export default function Roster() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="text-red-500 hover:text-red-600"
+                          className="text-bad hover:text-bad"
                           onClick={async () => {
                             // Members with financial history must be deactivated, not
                             // deleted — deleting orphans their fines and payments.
@@ -166,20 +166,20 @@ function TeamAccess() {
         subtitle="Accounts, their role, and which roster member each account IS. The member link powers own-only dues, benching accept/decline, and Slack notifications."
       />
       <div className="px-5 pb-5">
-        {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+        {error && <p className="text-sm text-bad mb-2">{error}</p>}
         {!profiles ? (
-          <p className="text-sm text-zinc-400">Loading…</p>
+          <p className="text-sm text-faint">Loading…</p>
         ) : profiles.length === 0 ? (
-          <p className="text-sm text-zinc-400 italic">No accounts yet.</p>
+          <p className="text-sm text-faint italic">No accounts yet.</p>
         ) : (
-          <ul className="divide-y divide-zinc-100">
+          <ul className="divide-y divide-line">
             {profiles.map((p) => {
               const member = state.roster.find((m) => m.id === p.member_id)
               return (
                 <li key={p.id} className="flex items-center gap-2 py-2.5 flex-wrap">
-                  <span className="flex-1 min-w-40 text-sm text-zinc-800 truncate">
+                  <span className="flex-1 min-w-40 text-sm text-ink truncate">
                     {p.email}
-                    {p.id === session?.user?.id && <span className="text-zinc-400"> (you)</span>}
+                    {p.id === session?.user?.id && <span className="text-faint"> (you)</span>}
                   </span>
                   {canEdit ? (
                     <Select
@@ -194,7 +194,7 @@ function TeamAccess() {
                       ))}
                     </Select>
                   ) : member ? (
-                    <Badge className="bg-zinc-100 text-zinc-600">{member.name}</Badge>
+                    <Badge className="bg-subtle text-muted">{member.name}</Badge>
                   ) : null}
                   {canEdit && (
                     <input
@@ -202,7 +202,7 @@ function TeamAccess() {
                       defaultValue={p.slack_email ?? ''}
                       placeholder="Slack email (if different)"
                       title="Set only if this person's Slack email differs from their login email, so DM reminders reach them."
-                      className="w-48 px-2 py-1 text-xs bg-white border border-zinc-300 rounded-lg"
+                      className="w-48 px-2 py-1 text-xs bg-surface border border-line-strong rounded-lg"
                       onBlur={(e) => {
                         const v = e.target.value.trim()
                         if (v !== (p.slack_email ?? '')) update(p.id, { slack_email: v || null })
@@ -219,7 +219,7 @@ function TeamAccess() {
                       <option value="editor">editor</option>
                     </Select>
                   ) : (
-                    <Badge className={p.role === 'editor' ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}>
+                    <Badge className={p.role === 'editor' ? 'bg-good-soft text-good' : 'bg-subtle text-muted'}>
                       {p.role}
                     </Badge>
                   )}
@@ -228,7 +228,7 @@ function TeamAccess() {
             })}
           </ul>
         )}
-        <p className="text-[11px] text-zinc-400 mt-3">
+        <p className="text-[11px] text-faint mt-3">
           Anyone on the team can create an account from the sign-in page — they start as a viewer.
           Link each account to its roster member so members see their own dues and can accept
           benching slots. Set a Slack email only when it differs from the login email, so DM

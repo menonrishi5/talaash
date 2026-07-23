@@ -61,8 +61,8 @@ export default function SetDesign() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-xl font-bold text-zinc-900 mb-1">Set Design</h1>
-          <p className="text-sm text-zinc-500">
+          <h1 className="text-xl font-bold text-ink mb-1">Set Design</h1>
+          <p className="text-sm text-muted">
             Show lineup, forms, mixes, casting and stage traffic.
           </p>
         </div>
@@ -105,7 +105,7 @@ function Lineup({ selectedId, onSelect }) {
               <div
                 onClick={() => onSelect(seg.id)}
                 className={`group flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer transition-colors ${
-                  seg.id === selectedId ? 'bg-zinc-900 text-white' : 'hover:bg-zinc-100'
+                  seg.id === selectedId ? 'bg-accent text-accent-ink' : 'hover:bg-subtle'
                 }`}
               >
                 <span
@@ -114,7 +114,7 @@ function Lineup({ selectedId, onSelect }) {
                 />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{seg.name}</div>
-                  <div className={`text-[11px] ${seg.id === selectedId ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                  <div className={`text-[11px] ${seg.id === selectedId ? 'text-faint' : 'text-muted'}`}>
                     {i + 1} of {state.segments.length} · {seg.members.length} dancers · {st.label}
                   </div>
                 </div>
@@ -172,9 +172,9 @@ function SegmentDetail({ segment }) {
               onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
             />
           ) : (
-            <h2 className="text-lg font-bold text-zinc-900 flex-1 truncate">{segment.name}</h2>
+            <h2 className="text-lg font-bold text-ink flex-1 truncate">{segment.name}</h2>
           )}
-          <Badge className="bg-zinc-100 text-zinc-600">#{idx + 1} in show</Badge>
+          <Badge className="bg-subtle text-muted">#{idx + 1} in show</Badge>
           {canEdit && (
             <>
               <Button size="sm" variant="ghost" onClick={() => setRenaming(true)}>Rename</Button>
@@ -226,7 +226,7 @@ function FormsCard({ segment }) {
           canEdit ? (
             <div className="flex gap-2">
               <UploadButton accept="application/pdf" label={segment.pdf ? 'Replace PDF' : 'Upload PDF'} onFile={upload} />
-              {segment.pdf && <Button size="sm" variant="ghost" className="text-red-500" onClick={remove}>Remove</Button>}
+              {segment.pdf && <Button size="sm" variant="ghost" className="text-bad" onClick={remove}>Remove</Button>}
             </div>
           ) : null
         }
@@ -237,11 +237,11 @@ function FormsCard({ segment }) {
             <iframe
               title="Forms PDF"
               src={url}
-              className="w-full h-[36rem] rounded-xl border border-zinc-200 bg-zinc-50"
+              className="w-full h-[36rem] rounded-xl border border-line bg-subtle"
             />
           </div>
         ) : (
-          <div className="px-5 pb-5 text-sm text-zinc-400">Loading PDF…</div>
+          <div className="px-5 pb-5 text-sm text-faint">Loading PDF…</div>
         )
       ) : (
         <EmptyState
@@ -293,7 +293,7 @@ function MixCard({ segment }) {
         {segment.audio && (
           url
             ? <audio controls src={url} className="w-full" />
-            : <div className="text-sm text-zinc-400">Loading audio…</div>
+            : <div className="text-sm text-faint">Loading audio…</div>
         )}
         {canEdit && (
           <div className="flex items-center gap-2">
@@ -308,7 +308,7 @@ function MixCard({ segment }) {
               ))}
             </Select>
             {segment.audio && (
-              <Button size="sm" variant="ghost" className="text-red-500" onClick={remove}>Remove</Button>
+              <Button size="sm" variant="ghost" className="text-bad" onClick={remove}>Remove</Button>
             )}
           </div>
         )}
@@ -327,7 +327,7 @@ function NotesCard({ segment }) {
       <CardHeader title="Notes" subtitle="Production details, people, ideas." />
       <div className="px-5 pb-5">
         <textarea
-          className="w-full h-32 px-3 py-2 text-sm bg-white border border-zinc-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-400/40 resize-y placeholder:text-zinc-400 read-only:bg-zinc-50 read-only:text-zinc-600"
+          className="w-full h-32 px-3 py-2 text-sm bg-surface border border-line-strong rounded-xl focus:outline-none focus:ring-2 focus:ring-accent/30 resize-y placeholder:text-faint read-only:bg-subtle read-only:text-muted"
           placeholder={canEdit ? 'e.g. Props enter with back row · lighting cue on the beat drop · Riya leads the front block…' : 'No notes yet.'}
           value={segment.notes}
           readOnly={!canEdit}
@@ -380,7 +380,7 @@ function CastCard({ segment, idx, onOpenPicker }) {
         actions={
           <div className="flex items-center gap-2">
             {warningCount > 0 && (
-              <Badge className="bg-red-100 text-red-700">⚠ {warningCount} quick-change risk{warningCount > 1 ? 's' : ''}</Badge>
+              <Badge className="bg-bad-soft text-bad">⚠ {warningCount} quick-change risk{warningCount > 1 ? 's' : ''}</Badge>
             )}
             {canEdit && segment.pdf && rows.length > 0 && (
               <Button size="sm" onClick={() => setDetectOpen(true)}>✨ Auto-detect sides</Button>
@@ -400,7 +400,7 @@ function CastCard({ segment, idx, onOpenPicker }) {
         <div className="px-5 pb-5 overflow-x-auto thin-scroll">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-400">
+              <tr className="text-left text-[11px] uppercase tracking-wide text-faint">
                 <th className="pb-2 pr-3 font-medium">Dancer</th>
                 <th className="pb-2 pr-3 font-medium">Adjacent segments</th>
                 <th className="pb-2 pr-3 font-medium">Total</th>
@@ -409,24 +409,24 @@ function CastCard({ segment, idx, onOpenPicker }) {
                 <th className="pb-2 font-medium"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100">
+            <tbody className="divide-y divide-line">
               {rows.map(({ entry, member, prevEntry, nextEntry, warnings, total }) => (
                 <tr key={member.id} className="align-top">
-                  <td className="py-2.5 pr-3 font-medium text-zinc-800 whitespace-nowrap">
+                  <td className="py-2.5 pr-3 font-medium text-ink whitespace-nowrap">
                     {member.name}
                     {!isActive(member) && (
-                      <Badge className="bg-amber-100 text-amber-800 ml-1.5" title="This member is inactive — consider recasting">inactive</Badge>
+                      <Badge className="bg-warn-soft text-warn ml-1.5" title="This member is inactive — consider recasting">inactive</Badge>
                     )}
                   </td>
                   <td className="py-2.5 pr-3">
                     <div className="flex flex-wrap gap-1">
-                      {prevEntry && <Badge className="bg-violet-100 text-violet-700">← in previous</Badge>}
-                      {nextEntry && <Badge className="bg-sky-100 text-sky-700">in next →</Badge>}
-                      {!prevEntry && !nextEntry && <span className="text-xs text-zinc-400">rests around this one</span>}
+                      {prevEntry && <Badge className="bg-special-soft text-special">← in previous</Badge>}
+                      {nextEntry && <Badge className="bg-info-soft text-info">in next →</Badge>}
+                      {!prevEntry && !nextEntry && <span className="text-xs text-faint">rests around this one</span>}
                     </div>
                   </td>
                   <td className="py-2.5 pr-3">
-                    <Badge className={total >= 5 ? 'bg-amber-100 text-amber-800' : 'bg-zinc-100 text-zinc-600'}>
+                    <Badge className={total >= 5 ? 'bg-warn-soft text-warn' : 'bg-subtle text-muted'}>
                       {total} seg{total !== 1 ? 's' : ''}
                     </Badge>
                   </td>
@@ -438,11 +438,11 @@ function CastCard({ segment, idx, onOpenPicker }) {
                   </td>
                   <td className="py-2.5">
                     {warnings.length > 0 && (
-                      <span className="text-red-600 text-xs" title={warnings.join('\n')}>⚠ {warnings.length}</span>
+                      <span className="text-bad text-xs" title={warnings.join('\n')}>⚠ {warnings.length}</span>
                     )}
                     {canEdit && (
                       <button
-                        className="ml-2 text-zinc-300 hover:text-red-500 cursor-pointer text-xs"
+                        className="ml-2 text-faint hover:text-bad cursor-pointer text-xs"
                         title="Remove from segment"
                         onClick={() => toggleSegmentMember(segment.id, member.id)}
                       >✕</button>
@@ -453,10 +453,10 @@ function CastCard({ segment, idx, onOpenPicker }) {
             </tbody>
           </table>
           {warningCount > 0 && (
-            <div className="mt-3 rounded-xl bg-red-50 border border-red-100 px-4 py-3 space-y-1">
+            <div className="mt-3 rounded-xl bg-bad-soft border border-bad/20 px-4 py-3 space-y-1">
               {rows.flatMap(({ member, warnings }) =>
                 warnings.map((w, i) => (
-                  <p key={member.id + i} className="text-xs text-red-700">
+                  <p key={member.id + i} className="text-xs text-bad">
                     <span className="font-semibold">{member.name}:</span> {w}
                   </p>
                 )),
@@ -518,12 +518,12 @@ function SideDetectModal({ segment, onClose }) {
 
   return (
     <Modal title={`Auto-detect sides — ${segment.name}`} onClose={onClose} wide>
-      {status === 'reading' && <p className="text-sm text-zinc-400">Reading the forms PDF…</p>}
+      {status === 'reading' && <p className="text-sm text-faint">Reading the forms PDF…</p>}
       {status === 'error' && (
-        <p className="text-sm text-red-600">Couldn't read that PDF — try re-uploading it, or set sides manually.</p>
+        <p className="text-sm text-bad">Couldn't read that PDF — try re-uploading it, or set sides manually.</p>
       )}
       {status === 'empty' && (
-        <p className="text-sm text-zinc-600">
+        <p className="text-sm text-muted">
           This PDF has no readable text — it's exported as images, so names can't be located
           automatically. Sides stay manual for this one. (If ArrangeUs offers a text-based PDF
           export option, that one would work.)
@@ -531,12 +531,12 @@ function SideDetectModal({ segment, onClose }) {
       )}
       {status === 'ready' && (
         <>
-          <p className="text-xs text-zinc-500 mb-2">
+          <p className="text-xs text-muted mb-2">
             Positions read from page 1 (enter) and page {numPages} (exit), split into stage thirds.
             Review, adjust the orientation if sides look mirrored, then apply. Everything stays
             editable in the cast table afterward.
           </p>
-          <label className="flex items-center gap-2 text-xs text-zinc-600 mb-3 cursor-pointer">
+          <label className="flex items-center gap-2 text-xs text-muted mb-3 cursor-pointer">
             <input
               type="checkbox"
               checked={leftIsStageLeft}
@@ -546,28 +546,28 @@ function SideDetectModal({ segment, onClose }) {
             from the audience's view)
           </label>
           {matched.length === 0 ? (
-            <p className="text-sm text-zinc-600">
+            <p className="text-sm text-muted">
               The PDF has text, but none of it matches this segment's cast names — are the names on
               the forms different from the roster names?
             </p>
           ) : (
             <table className="w-full text-sm mb-3">
               <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-400">
+                <tr className="text-left text-[11px] uppercase tracking-wide text-faint">
                   <th className="pb-1.5 pr-3 font-medium">Dancer</th>
                   <th className="pb-1.5 pr-3 font-medium">Enters from</th>
                   <th className="pb-1.5 font-medium">Exits to</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100">
+              <tbody className="divide-y divide-line">
                 {matched.map((d) => (
                   <tr key={d.memberId}>
-                    <td className="py-1.5 pr-3 font-medium text-zinc-800">{d.name}</td>
-                    <td className="py-1.5 pr-3 text-zinc-600">
-                      {d.enterPage ? sideLabel(pageToStage(d.enterPage, leftIsStageLeft)) : <span className="text-zinc-300">not found on page 1</span>}
+                    <td className="py-1.5 pr-3 font-medium text-ink">{d.name}</td>
+                    <td className="py-1.5 pr-3 text-muted">
+                      {d.enterPage ? sideLabel(pageToStage(d.enterPage, leftIsStageLeft)) : <span className="text-faint">not found on page 1</span>}
                     </td>
-                    <td className="py-1.5 text-zinc-600">
-                      {d.exitPage ? sideLabel(pageToStage(d.exitPage, leftIsStageLeft)) : <span className="text-zinc-300">not found on last page</span>}
+                    <td className="py-1.5 text-muted">
+                      {d.exitPage ? sideLabel(pageToStage(d.exitPage, leftIsStageLeft)) : <span className="text-faint">not found on last page</span>}
                     </td>
                   </tr>
                 ))}
@@ -575,7 +575,7 @@ function SideDetectModal({ segment, onClose }) {
             </table>
           )}
           {unmatched.length > 0 && (
-            <p className="text-[11px] text-zinc-400 mb-3">
+            <p className="text-[11px] text-faint mb-3">
               Not found in the PDF: {unmatched.map((d) => d.name).join(', ')} — set theirs manually.
             </p>
           )}
@@ -597,7 +597,7 @@ function SideSelect({ value, onChange, disabled }) {
       value={value}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
-      className="px-2 py-1 text-xs bg-white border border-zinc-300 rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-zinc-400/40 disabled:bg-zinc-50 disabled:cursor-default"
+      className="px-2 py-1 text-xs bg-surface border border-line-strong rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:bg-subtle disabled:cursor-default"
     >
       {SIDES.map((s) => (
         <option key={s.value} value={s.value}>{s.value === '' ? '—' : s.label}</option>
@@ -620,7 +620,7 @@ function CastPicker({ segment, onClose }) {
   return (
     <Modal title={`Cast — ${segment.name}`} onClose={onClose}>
       {state.roster.length === 0 ? (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-muted">
           The roster is empty — add members in the Roster tab first.
         </p>
       ) : (
@@ -635,11 +635,11 @@ function CastPicker({ segment, onClose }) {
                   onClick={() => toggleSegmentMember(segment.id, m.id)}
                   className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-left transition-colors cursor-pointer border ${
                     active
-                      ? 'bg-zinc-900 text-white border-zinc-900'
-                      : 'bg-white border-zinc-200 hover:border-zinc-400'
+                      ? 'bg-accent text-accent-ink border-accent'
+                      : 'bg-surface border-line hover:border-line-strong'
                   }`}
                 >
-                  <span className={`w-4 h-4 rounded-md flex items-center justify-center text-[10px] ${active ? 'bg-white text-zinc-900' : 'border border-zinc-300'}`}>
+                  <span className={`w-4 h-4 rounded-md flex items-center justify-center text-[10px] ${active ? 'bg-surface text-ink' : 'border border-line-strong'}`}>
                     {active ? '✓' : ''}
                   </span>
                   <span className="truncate">{m.name}{!isActive(m) ? ' (inactive)' : ''}</span>

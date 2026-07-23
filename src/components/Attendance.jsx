@@ -81,16 +81,16 @@ function MyAttendance() {
   return (
     <div>
       <div className="mb-5">
-        <h1 className="text-xl font-bold text-zinc-900 mb-1">My Attendance</h1>
-        <p className="text-sm text-zinc-500">Your check-ins and fines — only you and the board see this.</p>
+        <h1 className="text-xl font-bold text-ink mb-1">My Attendance</h1>
+        <p className="text-sm text-muted">Your check-ins and fines — only you and the board see this.</p>
       </div>
 
       {todaySession && (
         <Card className="mb-5">
           <div className="px-5 py-4 flex items-center justify-between flex-wrap gap-3">
             <div>
-              <p className="text-sm font-semibold text-zinc-800">Practice check-in is open today</p>
-              <p className="text-xs text-zinc-500">Use the password announced at practice.</p>
+              <p className="text-sm font-semibold text-ink">Practice check-in is open today</p>
+              <p className="text-xs text-muted">Use the password announced at practice.</p>
             </div>
             <Button variant="primary" onClick={() => window.open(checkInURL(), '_blank')}>
               Check in now
@@ -108,8 +108,8 @@ function MyAttendance() {
         ].map(([label, value]) => (
           <Card key={label}>
             <div className="px-4 py-3">
-              <div className="text-[11px] uppercase tracking-wide text-zinc-400 font-medium">{label}</div>
-              <div className={`text-xl font-bold ${label === 'Outstanding' && due > 0 ? 'text-red-600' : 'text-zinc-900'}`}>{value}</div>
+              <div className="text-[11px] uppercase tracking-wide text-faint font-medium">{label}</div>
+              <div className={`text-xl font-bold ${label === 'Outstanding' && due > 0 ? 'text-bad' : 'text-ink'}`}>{value}</div>
             </div>
           </Card>
         ))}
@@ -118,32 +118,32 @@ function MyAttendance() {
       <Card>
         <CardHeader title="History" />
         {!memberId ? (
-          <p className="px-5 pb-5 text-sm text-zinc-500">
+          <p className="px-5 pb-5 text-sm text-muted">
             Your account isn't linked to a roster member yet — ask a board member to link it
             (Roster → App access) and your history will appear here.
           </p>
         ) : checkins === null ? (
-          <p className="px-5 pb-5 text-sm text-zinc-400">Loading…</p>
+          <p className="px-5 pb-5 text-sm text-faint">Loading…</p>
         ) : checkins.length === 0 ? (
-          <p className="px-5 pb-5 text-sm text-zinc-400 italic">No check-ins yet.</p>
+          <p className="px-5 pb-5 text-sm text-faint italic">No check-ins yet.</p>
         ) : (
-          <ul className="px-5 pb-5 divide-y divide-zinc-100">
+          <ul className="px-5 pb-5 divide-y divide-line">
             {checkins.map((c) => (
               <li key={c.id} className="py-2 flex items-center gap-3 text-sm">
-                <span className="text-zinc-500 text-xs w-20">
+                <span className="text-muted text-xs w-20">
                   {c.attendance_sessions?.session_date ? fmtDate(c.attendance_sessions.session_date) : '—'}
                 </span>
-                <span className="flex-1 text-zinc-700">
+                <span className="flex-1 text-ink">
                   {c.no_show ? 'did not check in' : `checked in ${fmtTeamTime(c.checked_at)}`}
                 </span>
                 {c.no_show
                   ? (Number(c.fine) > 0
-                      ? <Badge className="bg-red-100 text-red-700">no-show</Badge>
-                      : <Badge className="bg-zinc-100 text-zinc-500">excused</Badge>)
+                      ? <Badge className="bg-bad-soft text-bad">no-show</Badge>
+                      : <Badge className="bg-subtle text-muted">excused</Badge>)
                   : c.mins_late > 0
-                    ? <Badge className="bg-amber-100 text-amber-800">{c.mins_late} min late</Badge>
-                    : <Badge className="bg-emerald-100 text-emerald-700">on time</Badge>}
-                {Number(c.fine) > 0 && <span className="font-semibold text-red-600">{money(c.fine)}</span>}
+                    ? <Badge className="bg-warn-soft text-warn">{c.mins_late} min late</Badge>
+                    : <Badge className="bg-good-soft text-good">on time</Badge>}
+                {Number(c.fine) > 0 && <span className="font-semibold text-bad">{money(c.fine)}</span>}
               </li>
             ))}
           </ul>
@@ -211,8 +211,8 @@ function AttendanceAdmin() {
     <div>
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-zinc-900 mb-1">Attendance</h1>
-          <p className="text-sm text-zinc-500">
+          <h1 className="text-xl font-bold text-ink mb-1">Attendance</h1>
+          <p className="text-sm text-muted">
             Check-in link + rotating password per practice; fines compute on the server clock.
           </p>
         </div>
@@ -220,20 +220,20 @@ function AttendanceAdmin() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-2xl bg-red-50 border border-red-200 px-5 py-3 text-sm text-red-700">
+        <div className="mb-4 rounded-2xl bg-bad-soft border border-bad/25 px-5 py-3 text-sm text-bad">
           {error}
         </div>
       )}
 
       {loading ? (
-        <Card><div className="p-8 text-sm text-zinc-400">Loading…</div></Card>
+        <Card><div className="p-8 text-sm text-faint">Loading…</div></Card>
       ) : session ? (
         <LiveSession session={session} checkins={checkins} refresh={refresh} />
       ) : canEdit ? (
         <StartSession todayISO={todayISO} onCreated={refresh} />
       ) : (
         <Card className="mb-5">
-          <div className="p-8 text-sm text-zinc-500 text-center">
+          <div className="p-8 text-sm text-muted text-center">
             No practice session is open today — an editor starts one when practice is on.
           </div>
         </Card>
@@ -322,12 +322,12 @@ function StartSession({ todayISO, onCreated }) {
             />
           </Field>
         </div>
-        <p className="text-xs text-zinc-500 mb-4">
+        <p className="text-xs text-muted mb-4">
           With these settings: free until {minToLabel(form.cutoff_min + form.grace_min)}, {money(form.tier1_amount)} until{' '}
           {minToLabel(form.cutoff_min + form.tier1_until_min)}, {money(form.tier2_amount)} after that.
         </p>
         <div className="flex items-center gap-3 flex-wrap">
-          <label className="flex items-center gap-2 text-sm text-zinc-700 cursor-pointer">
+          <label className="flex items-center gap-2 text-sm text-ink cursor-pointer">
             <input
               type="checkbox" checked={form.fines_active}
               onChange={(e) => setForm({ ...form, fines_active: e.target.checked })}
@@ -335,8 +335,8 @@ function StartSession({ todayISO, onCreated }) {
             Fines active today
           </label>
           <div className="flex items-center gap-2 ml-auto">
-            <span className="text-sm text-zinc-500">Password:</span>
-            <code className="px-2.5 py-1 bg-zinc-100 rounded-lg text-sm font-bold tracking-wide">{form.password}</code>
+            <span className="text-sm text-muted">Password:</span>
+            <code className="px-2.5 py-1 bg-subtle rounded-lg text-sm font-bold tracking-wide">{form.password}</code>
             <Button size="sm" variant="ghost" onClick={() => setForm({ ...form, password: genPassword() })}>↻ New</Button>
           </div>
           <Button variant="primary" disabled={busy} onClick={create}>
@@ -464,8 +464,8 @@ function LiveSession({ session, checkins, refresh }) {
           {ended ? (
             <>
               <p className="text-4xl mt-4 mb-2">🏁</p>
-              <p className="font-semibold text-zinc-800">Check-in closed</p>
-              <p className="text-xs text-zinc-500 mb-4">
+              <p className="font-semibold text-ink">Check-in closed</p>
+              <p className="text-xs text-muted mb-4">
                 ended at {fmtTeamTime(session.ended_at)} — fines recorded today stand
               </p>
               {canEdit && (
@@ -474,9 +474,9 @@ function LiveSession({ session, checkins, refresh }) {
             </>
           ) : (
             <>
-              {qr && <img src={qr} alt="Check-in QR code" className="w-48 h-48 rounded-xl border border-zinc-200" />}
-              <div className="mt-3 text-2xl font-black tracking-widest text-zinc-900 uppercase">{session.password}</div>
-              <p className="text-[11px] text-zinc-400 mb-3">announce this at practice — it changes daily</p>
+              {qr && <img src={qr} alt="Check-in QR code" className="w-48 h-48 rounded-xl border border-line" />}
+              <div className="mt-3 text-2xl font-black tracking-widest text-ink uppercase">{session.password}</div>
+              <p className="text-[11px] text-faint mb-3">announce this at practice — it changes daily</p>
               <div className="flex gap-2 flex-wrap justify-center">
                 <Button size="sm" onClick={() => navigator.clipboard.writeText(url)}>Copy link</Button>
                 <Button size="sm" variant="ghost" onClick={() => window.open(url, '_blank')}>Open page</Button>
@@ -484,14 +484,14 @@ function LiveSession({ session, checkins, refresh }) {
               </div>
             </>
           )}
-          <div className="mt-4 w-full border-t border-zinc-100 pt-3 flex items-center justify-between">
-            <label className={`flex items-center gap-2 text-sm text-zinc-700 ${canEdit ? 'cursor-pointer' : ''}`}>
+          <div className="mt-4 w-full border-t border-line pt-3 flex items-center justify-between">
+            <label className={`flex items-center gap-2 text-sm text-ink ${canEdit ? 'cursor-pointer' : ''}`}>
               <input type="checkbox" disabled={!canEdit || ended} checked={session.fines_active} onChange={(e) => setFines(e.target.checked)} />
               Fines active
             </label>
-            {canEdit && <Button size="sm" variant="ghost" className="text-red-500" onClick={deleteSession}>Delete session</Button>}
+            {canEdit && <Button size="sm" variant="ghost" className="text-bad" onClick={deleteSession}>Delete session</Button>}
           </div>
-          <p className="text-[11px] text-zinc-400 mt-2 self-start text-left">
+          <p className="text-[11px] text-faint mt-2 self-start text-left">
             Cutoff {minToLabel(session.cutoff_min)} · free until {minToLabel(session.cutoff_min + session.grace_min)} ·{' '}
             {money(session.tier1_amount)} until {minToLabel(session.cutoff_min + session.tier1_until_min)} · then {money(session.tier2_amount)}
           </p>
@@ -514,11 +514,11 @@ function LiveSession({ session, checkins, refresh }) {
         />
         <div className="px-5 pb-5">
           {checkins.length === 0 ? (
-            <p className="text-sm text-zinc-400 italic mb-4">Nobody has checked in yet.</p>
+            <p className="text-sm text-faint italic mb-4">Nobody has checked in yet.</p>
           ) : (
             <table className="w-full text-sm mb-4">
               <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-400">
+                <tr className="text-left text-[11px] uppercase tracking-wide text-faint">
                   <th className="pb-2 pr-3 font-medium">Member</th>
                   <th className="pb-2 pr-3 font-medium">Time</th>
                   <th className="pb-2 pr-3 font-medium">Late</th>
@@ -526,25 +526,25 @@ function LiveSession({ session, checkins, refresh }) {
                   <th className="pb-2 font-medium"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100">
+              <tbody className="divide-y divide-line">
                 {checkins.map((c) => (
                   <tr key={c.id}>
-                    <td className="py-2 pr-3 font-medium text-zinc-800">{c.member_name}</td>
-                    <td className="py-2 pr-3 text-zinc-600">{c.no_show ? '—' : fmtTeamTime(c.checked_at)}</td>
+                    <td className="py-2 pr-3 font-medium text-ink">{c.member_name}</td>
+                    <td className="py-2 pr-3 text-muted">{c.no_show ? '—' : fmtTeamTime(c.checked_at)}</td>
                     <td className="py-2 pr-3">
                       {c.no_show
                         ? (Number(c.fine) > 0
-                            ? <Badge className="bg-red-100 text-red-700">no-show</Badge>
-                            : <Badge className="bg-zinc-100 text-zinc-500">no-show · excused</Badge>)
+                            ? <Badge className="bg-bad-soft text-bad">no-show</Badge>
+                            : <Badge className="bg-subtle text-muted">no-show · excused</Badge>)
                         : c.mins_late > 0
-                          ? <Badge className="bg-amber-100 text-amber-800">{c.mins_late} min</Badge>
-                          : <Badge className="bg-emerald-100 text-emerald-700">on time</Badge>}
+                          ? <Badge className="bg-warn-soft text-warn">{c.mins_late} min</Badge>
+                          : <Badge className="bg-good-soft text-good">on time</Badge>}
                     </td>
-                    <td className="py-2 pr-3 font-semibold text-zinc-800 whitespace-nowrap">
-                      {Number(c.fine) > 0 ? <span className="text-red-600">{money(c.fine)}</span> : '—'}
+                    <td className="py-2 pr-3 font-semibold text-ink whitespace-nowrap">
+                      {Number(c.fine) > 0 ? <span className="text-bad">{money(c.fine)}</span> : '—'}
                       {canEdit && (
                         <button
-                          className="ml-1.5 text-zinc-300 hover:text-zinc-600 cursor-pointer text-xs"
+                          className="ml-1.5 text-faint hover:text-muted cursor-pointer text-xs"
                           title="Adjust or waive this fine (keeps the check-in)"
                           onClick={() => editFine(c)}
                         >✎</button>
@@ -553,7 +553,7 @@ function LiveSession({ session, checkins, refresh }) {
                     <td className="py-2 text-right">
                       {canEdit && (
                         <button
-                          className="text-zinc-300 hover:text-red-500 cursor-pointer text-xs"
+                          className="text-faint hover:text-bad cursor-pointer text-xs"
                           title="Remove check-in"
                           onClick={() => removeCheckin(c)}
                         >✕</button>
@@ -566,25 +566,25 @@ function LiveSession({ session, checkins, refresh }) {
           )}
           {missing.length > 0 && !ended && (
             <>
-              <p className="text-[11px] uppercase tracking-wide text-zinc-400 font-medium mb-1.5">
+              <p className="text-[11px] uppercase tracking-wide text-faint font-medium mb-1.5">
                 Not checked in ({missing.length})
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {missing.map((m) => (
-                  <Badge key={m.id} className="bg-zinc-100 text-zinc-600">{m.name}</Badge>
+                  <Badge key={m.id} className="bg-subtle text-muted">{m.name}</Badge>
                 ))}
               </div>
             </>
           )}
           {missing.length > 0 && ended && canEdit && (
             <>
-              <p className="text-[11px] uppercase tracking-wide text-amber-700 font-medium mb-1.5">
+              <p className="text-[11px] uppercase tracking-wide text-warn font-medium mb-1.5">
                 ⚠ No-shows to review ({missing.length}) — fine or excuse each
               </p>
-              <ul className="divide-y divide-zinc-100">
+              <ul className="divide-y divide-line">
                 {missing.map((m) => (
                   <li key={m.id} className="py-1.5 flex items-center gap-2 text-sm">
-                    <span className="flex-1 font-medium text-zinc-800">{m.name}</span>
+                    <span className="flex-1 font-medium text-ink">{m.name}</span>
                     <Button size="sm" variant="danger" onClick={() => fineNoShow(m)}>Fine</Button>
                     <Button size="sm" variant="ghost" onClick={() => recordNoShow(m, 0)}>Excuse</Button>
                   </li>
@@ -593,7 +593,7 @@ function LiveSession({ session, checkins, refresh }) {
             </>
           )}
           {missing.length > 0 && ended && !canEdit && (
-            <p className="text-xs text-zinc-400">{missing.length} member{missing.length > 1 ? 's' : ''} didn't check in.</p>
+            <p className="text-xs text-faint">{missing.length} member{missing.length > 1 ? 's' : ''} didn't check in.</p>
           )}
         </div>
       </Card>
@@ -659,14 +659,14 @@ function ZeffyFines() {
         title={`Zeffy fine payments to confirm (${candidates.length})`}
         subtitle='Payments from Zeffy mentioning "fine" that aren&apos;t in the ledger yet. Confirm who each one belongs to.'
       />
-      <ul className="px-5 pb-5 divide-y divide-zinc-100">
+      <ul className="px-5 pb-5 divide-y divide-line">
         {candidates.map((p) => (
           <li key={p.id} className="py-2 flex items-center gap-3 text-sm flex-wrap">
-            <span className="font-medium text-zinc-800">
+            <span className="font-medium text-ink">
               {`${p.buyer_first ?? ''} ${p.buyer_last ?? ''}`.trim() || p.buyer_email || 'Unknown'}
             </span>
-            <Badge className="bg-zinc-100 text-zinc-600">{money(p.amount_cents / 100)}</Badge>
-            <span className="text-xs text-zinc-400">
+            <Badge className="bg-subtle text-muted">{money(p.amount_cents / 100)}</Badge>
+            <span className="text-xs text-faint">
               {new Date(p.created).toLocaleDateString()} · {p.description || 'no campaign'}
             </span>
             <div className="ml-auto flex items-center gap-2">
@@ -730,7 +730,7 @@ function Ledger() {
       <div className="px-5 pb-5 overflow-x-auto thin-scroll">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-400">
+            <tr className="text-left text-[11px] uppercase tracking-wide text-faint">
               <th className="pb-2 pr-3 font-medium">Member</th>
               <th className="pb-2 pr-3 font-medium">Practices</th>
               <th className="pb-2 pr-3 font-medium">Total fined</th>
@@ -738,19 +738,19 @@ function Ledger() {
               <th className="pb-2 font-medium">Outstanding</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100">
+          <tbody className="divide-y divide-line">
             {rows.map((r) => {
               const due = r.fined - r.paid
               return (
                 <tr key={r.id}>
-                  <td className="py-2 pr-3 font-medium text-zinc-800">{r.name}</td>
-                  <td className="py-2 pr-3 text-zinc-600">{r.attended}</td>
-                  <td className="py-2 pr-3 text-zinc-600">{money(r.fined)}</td>
-                  <td className="py-2 pr-3 text-zinc-600">{money(r.paid)}</td>
+                  <td className="py-2 pr-3 font-medium text-ink">{r.name}</td>
+                  <td className="py-2 pr-3 text-muted">{r.attended}</td>
+                  <td className="py-2 pr-3 text-muted">{money(r.fined)}</td>
+                  <td className="py-2 pr-3 text-muted">{money(r.paid)}</td>
                   <td className="py-2">
                     {due > 0
-                      ? <Badge className="bg-red-100 text-red-700">{money(due)} due</Badge>
-                      : <Badge className="bg-emerald-100 text-emerald-700">settled</Badge>}
+                      ? <Badge className="bg-bad-soft text-bad">{money(due)} due</Badge>
+                      : <Badge className="bg-good-soft text-good">settled</Badge>}
                   </td>
                 </tr>
               )
@@ -784,15 +784,15 @@ function History({ todayISO }) {
   return (
     <Card>
       <CardHeader title="Past practices" />
-      <ul className="px-5 pb-5 divide-y divide-zinc-100">
+      <ul className="px-5 pb-5 divide-y divide-line">
         {rows.map((s) => {
           const fines = s.checkins.reduce((n, c) => n + Number(c.fine), 0)
           return (
             <li key={s.id} className="py-2 flex items-center justify-between text-sm">
-              <span className="font-medium text-zinc-800">
+              <span className="font-medium text-ink">
                 {fmtDate(s.session_date, { weekday: 'short', month: 'short', day: 'numeric' })}
               </span>
-              <span className="text-zinc-500">
+              <span className="text-muted">
                 {s.checkins.length} checked in{fines > 0 ? ` · ${money(fines)} fines` : ''}
               </span>
             </li>
@@ -845,7 +845,7 @@ function PaymentModal({ onClose }) {
       <Field label="Note (optional)">
         <TextInput placeholder="e.g. paid via Zeffy 7/13" value={note} onChange={(e) => setNote(e.target.value)} />
       </Field>
-      <p className="text-[11px] text-zinc-400 mb-3">
+      <p className="text-[11px] text-faint mb-3">
         Zeffy payments will reconcile automatically once the webhook is connected — this is for cash/manual cases.
       </p>
       <div className="flex justify-end gap-2">

@@ -88,13 +88,13 @@ export default function WeekGrid({ weekISO, events, onDragCreate }) {
             const iso = addDaysISO(weekISO, i)
             const isToday = iso === todayISO
             return (
-              <div key={d} className="px-2 py-2 text-center border-b border-zinc-200">
-                <div className={`text-[11px] font-medium uppercase tracking-wide ${isToday ? 'text-zinc-900' : 'text-zinc-400'}`}>
+              <div key={d} className="px-2 py-2 text-center border-b border-line">
+                <div className={`text-[11px] font-medium uppercase tracking-wide ${isToday ? 'text-ink' : 'text-faint'}`}>
                   {d}
                 </div>
                 <div
                   className={`text-sm font-semibold mt-0.5 inline-flex items-center justify-center ${
-                    isToday ? 'bg-zinc-900 text-white rounded-full w-7 h-7' : 'text-zinc-700'
+                    isToday ? 'bg-accent text-accent-ink rounded-full w-7 h-7' : 'text-ink'
                   }`}
                 >
                   {fmtDate(iso, { day: 'numeric' })}
@@ -111,7 +111,7 @@ export default function WeekGrid({ weekISO, events, onDragCreate }) {
             {hours.map((h) => (
               <div
                 key={h}
-                className="absolute right-2 -translate-y-1/2 text-[10px] text-zinc-400"
+                className="absolute right-2 -translate-y-1/2 text-[10px] text-faint"
                 style={{ top: minY(h * 60) }}
               >
                 {h === 12 ? '12 PM' : h > 12 ? `${h - 12} PM` : `${h} AM`}
@@ -125,7 +125,7 @@ export default function WeekGrid({ weekISO, events, onDragCreate }) {
               <div
                 key={day}
                 ref={(el) => (colRefs.current[day] = el)}
-                className={`relative border-l border-zinc-100 ${onDragCreate ? 'cursor-crosshair' : ''}`}
+                className={`relative border-l border-line ${onDragCreate ? 'cursor-crosshair' : ''}`}
                 style={{ height: totalHeight }}
                 onPointerDown={(e) => startDrag(day, e)}
                 onPointerMove={moveDrag}
@@ -134,7 +134,7 @@ export default function WeekGrid({ weekISO, events, onDragCreate }) {
                 {hours.map((h) => (
                   <div
                     key={h}
-                    className="absolute inset-x-0 border-t border-zinc-100"
+                    className="absolute inset-x-0 border-t border-line"
                     style={{ top: minY(h * 60) }}
                   />
                 ))}
@@ -150,7 +150,7 @@ export default function WeekGrid({ weekISO, events, onDragCreate }) {
                     onPointerDown={(e) => e.stopPropagation()}
                     className={`absolute rounded-lg px-2 py-1 text-[11px] leading-tight overflow-hidden transition-shadow ${
                       ev.onClick ? 'cursor-pointer hover:shadow-md' : ''
-                    } ${ev.dashed ? 'border-2 border-dashed bg-white/70' : 'text-white shadow-sm'}`}
+                    } ${ev.dashed ? 'border-2 border-dashed bg-surface/70' : 'text-white shadow-sm'}`}
                     style={{
                       top: minY(ev.startMin) + 1,
                       height: Math.max(minY(ev.endMin) - minY(ev.startMin) - 2, 18),
@@ -171,10 +171,10 @@ export default function WeekGrid({ weekISO, events, onDragCreate }) {
                 {/* drag preview */}
                 {drag && drag.day === day && (
                   <div
-                    className="absolute inset-x-0.5 rounded-lg bg-zinc-900/15 border-2 border-dashed border-zinc-500 pointer-events-none flex items-center justify-center"
+                    className="absolute inset-x-0.5 rounded-lg bg-accent/15 border-2 border-dashed border-accent pointer-events-none flex items-center justify-center"
                     style={{ top: minY(drag.startMin), height: minY(drag.endMin) - minY(drag.startMin) }}
                   >
-                    <span className="text-[11px] font-medium text-zinc-700">
+                    <span className="text-[11px] font-medium text-ink">
                       {minToLabel(drag.startMin)} – {minToLabel(drag.endMin)}
                     </span>
                   </div>

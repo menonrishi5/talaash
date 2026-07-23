@@ -8,6 +8,7 @@ import Reimbursements from './components/Reimbursements.jsx'
 import Roster from './components/Roster.jsx'
 import { useStore } from './store.jsx'
 import { useAuth } from './auth.jsx'
+import { useTheme } from './theme.jsx'
 
 const NAV = [
   {
@@ -78,10 +79,42 @@ const NAV = [
 ]
 
 const SYNC_LABEL = {
-  connecting: { dot: 'bg-zinc-500 animate-pulse', text: 'Connecting…' },
-  synced: { dot: 'bg-emerald-500', text: 'Synced' },
-  saving: { dot: 'bg-amber-400 animate-pulse', text: 'Saving…' },
-  offline: { dot: 'bg-red-500', text: 'Offline — saved locally' },
+  connecting: { dot: 'bg-faint animate-pulse', text: 'Connecting…' },
+  synced: { dot: 'bg-good', text: 'Synced' },
+  saving: { dot: 'bg-warn animate-pulse', text: 'Saving…' },
+  offline: { dot: 'bg-bad', text: 'Offline — saved locally' },
+}
+
+const THEME_ICONS = {
+  light: <path d="M12 3v1.5M12 19.5V21M4.2 4.2l1 1M18.8 18.8l1 1M3 12h1.5M19.5 12H21M4.2 19.8l1-1M18.8 5.2l1-1" />,
+  system: <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></>,
+  dark: <path d="M20 13.5A8 8 0 1 1 10.5 4a6.5 6.5 0 0 0 9.5 9.5Z" />,
+}
+
+function ThemeToggle() {
+  const { pref, setPref } = useTheme()
+  return (
+    <div
+      className="flex p-0.5 rounded-lg"
+      style={{ background: 'var(--sidebar-hover)' }}
+    >
+      {['light', 'system', 'dark'].map((mode) => (
+        <button
+          key={mode}
+          onClick={() => setPref(mode)}
+          title={mode[0].toUpperCase() + mode.slice(1)}
+          className="flex-1 flex items-center justify-center py-1.5 rounded-md cursor-pointer transition-colors"
+          style={pref === mode
+            ? { background: 'var(--accent)', color: 'var(--accent-ink)' }
+            : { color: 'var(--sidebar-muted)' }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            {THEME_ICONS[mode]}
+          </svg>
+        </button>
+      ))}
+    </div>
+  )
 }
 
 export default function App() {
@@ -93,52 +126,71 @@ export default function App() {
   return (
     <div className="h-full flex">
       {/* Sidebar */}
-      <aside className="w-56 shrink-0 bg-zinc-900 text-zinc-300 flex flex-col">
+      <aside
+        className="w-56 shrink-0 flex flex-col themed"
+        style={{ background: 'var(--sidebar)', color: 'var(--sidebar-muted)' }}
+      >
         <div className="px-5 pt-6 pb-5">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-zinc-600 to-zinc-800 border border-zinc-600 flex items-center justify-center font-bold text-white text-sm">
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center font-extrabold text-sm"
+              style={{
+                background: 'linear-gradient(145deg, var(--accent), var(--accent-strong))',
+                color: 'var(--accent-ink)',
+                boxShadow: '0 4px 12px color-mix(in srgb, var(--accent) 45%, transparent)',
+              }}
+            >
               T
             </div>
             <div>
-              <div className="text-sm font-semibold text-white leading-tight">Talaash HQ</div>
-              <div className="text-[11px] text-zinc-500">DDN team manager</div>
+              <div className="text-sm font-semibold leading-tight" style={{ color: 'var(--sidebar-ink)' }}>Talaash HQ</div>
+              <div className="text-[11px]" style={{ color: 'var(--sidebar-muted)' }}>DDN team manager</div>
             </div>
           </div>
         </div>
-        <nav className="px-3 space-y-1">
-          {NAV.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => setTab(n.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
-                tab === n.id
-                  ? 'bg-zinc-700/70 text-white'
-                  : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
-              }`}
-            >
-              {n.icon}
-              {n.label}
-            </button>
-          ))}
+        <nav className="px-3 space-y-0.5">
+          {NAV.map((n) => {
+            const active = tab === n.id
+            return (
+              <button
+                key={n.id}
+                onClick={() => setTab(n.id)}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium cursor-pointer transition-colors"
+                style={active
+                  ? { background: 'var(--accent)', color: 'var(--accent-ink)', boxShadow: '0 2px 10px color-mix(in srgb, var(--accent) 40%, transparent)' }
+                  : { color: 'var(--sidebar-muted)' }}
+                onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = 'var(--sidebar-hover)'; e.currentTarget.style.color = 'var(--sidebar-ink)' } }}
+                onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--sidebar-muted)' } }}
+              >
+                {n.icon}
+                {n.label}
+              </button>
+            )
+          })}
         </nav>
-        <div className="mt-auto px-5 py-4 space-y-2.5">
-          <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+        <div className="mt-auto px-4 py-4 space-y-3">
+          <ThemeToggle />
+          <div className="flex items-center gap-2 text-[11px] px-1" style={{ color: 'var(--sidebar-muted)' }}>
             <span className={`w-2 h-2 rounded-full ${sync.dot}`} />
             {sync.text}
           </div>
-          <div className="border-t border-zinc-800 pt-2.5">
-            <div className="text-[11px] text-zinc-400 truncate" title={session?.user?.email}>
+          <div className="pt-3 px-1" style={{ borderTop: '1px solid var(--sidebar-hover)' }}>
+            <div className="text-[11px] truncate" style={{ color: 'var(--sidebar-muted)' }} title={session?.user?.email}>
               {session?.user?.email}
             </div>
-            <div className="flex items-center justify-between mt-1">
-              <span className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${
-                role === 'editor' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-zinc-800 text-zinc-400'
-              }`}>
+            <div className="flex items-center justify-between mt-1.5">
+              <span
+                className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                style={role === 'editor'
+                  ? { background: 'color-mix(in srgb, var(--accent) 25%, transparent)', color: 'var(--accent-strong)' }
+                  : { background: 'var(--sidebar-hover)', color: 'var(--sidebar-muted)' }}
+              >
                 {role}
               </span>
               <button
                 onClick={signOut}
-                className="text-[11px] text-zinc-500 hover:text-zinc-200 cursor-pointer"
+                className="text-[11px] cursor-pointer transition-colors hover:opacity-100"
+                style={{ color: 'var(--sidebar-muted)' }}
               >
                 Sign out
               </button>

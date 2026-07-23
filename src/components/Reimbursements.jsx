@@ -17,16 +17,16 @@ function ReceiptLink({ id, className }) {
     else alert('Could not open the receipt.')
   }
   return (
-    <a href="#" onClick={open} className={className ?? 'text-xs text-zinc-500 underline'}>receipt</a>
+    <a href="#" onClick={open} className={className ?? 'text-xs text-muted underline'}>receipt</a>
   )
 }
 const CATEGORIES = ['Props', 'Costumes', 'Food', 'Travel', 'Production', 'Competition', 'Other']
 
 const STATUS_BADGE = {
-  pending: 'bg-amber-100 text-amber-800',
-  approved: 'bg-sky-100 text-sky-700',
-  denied: 'bg-zinc-100 text-zinc-500',
-  paid: 'bg-emerald-100 text-emerald-700',
+  pending: 'bg-warn-soft text-warn',
+  approved: 'bg-info-soft text-info',
+  denied: 'bg-subtle text-muted',
+  paid: 'bg-good-soft text-good',
 }
 
 export default function Reimbursements() {
@@ -80,8 +80,8 @@ export default function Reimbursements() {
   return (
     <div>
       <div className="mb-5">
-        <h1 className="text-xl font-bold text-zinc-900 mb-1">Reimbursements</h1>
-        <p className="text-sm text-zinc-500">
+        <h1 className="text-xl font-bold text-ink mb-1">Reimbursements</h1>
+        <p className="text-sm text-muted">
           Spent your own money on the team? Submit it here. Approved amounts offset your dues
           first; anything left is paid back to you.
         </p>
@@ -90,23 +90,23 @@ export default function Reimbursements() {
       <SubmitCard onSubmitted={load} />
 
       {rows === null ? (
-        <Card><div className="p-8 text-sm text-zinc-400">Loading…</div></Card>
+        <Card><div className="p-8 text-sm text-faint">Loading…</div></Card>
       ) : (
         <>
           {pending.length > 0 && (
             <Card className="mb-5">
               <CardHeader title={canEdit ? `Awaiting review (${pending.length})` : 'Your pending requests'} />
-              <ul className="px-5 pb-5 divide-y divide-zinc-100">
+              <ul className="px-5 pb-5 divide-y divide-line">
                 {pending.map((r) => (
                   <Row key={r.id} r={r} memberName={memberName}>
                     {canEdit ? (
                       <>
                         <Button size="sm" variant="primary" onClick={() => setDecide(r)}>Review</Button>
                         <Button size="sm" variant="ghost" onClick={() => setEdit(r)}>Edit</Button>
-                        <Button size="sm" variant="ghost" className="text-red-500" onClick={() => remove(r)}>Delete</Button>
+                        <Button size="sm" variant="ghost" className="text-bad" onClick={() => remove(r)}>Delete</Button>
                       </>
                     ) : (
-                      <Button size="sm" variant="ghost" className="text-red-500" onClick={() => remove(r)}>Withdraw</Button>
+                      <Button size="sm" variant="ghost" className="text-bad" onClick={() => remove(r)}>Withdraw</Button>
                     )}
                   </Row>
                 ))}
@@ -117,9 +117,9 @@ export default function Reimbursements() {
           <Card>
             <CardHeader title="History" />
             {decided.length === 0 ? (
-              <p className="px-5 pb-5 text-sm text-zinc-400 italic">Nothing decided yet.</p>
+              <p className="px-5 pb-5 text-sm text-faint italic">Nothing decided yet.</p>
             ) : (
-              <ul className="px-5 pb-5 divide-y divide-zinc-100">
+              <ul className="px-5 pb-5 divide-y divide-line">
                 {decided.map((r) => (
                   <Row key={r.id} r={r} memberName={memberName}>
                     {canEdit && r.status === 'approved' &&
@@ -130,7 +130,7 @@ export default function Reimbursements() {
                       <>
                         <Button size="sm" variant="ghost" onClick={() => setDecide(r)}>Re-review</Button>
                         <Button size="sm" variant="ghost" onClick={() => setEdit(r)}>Edit</Button>
-                        <Button size="sm" variant="ghost" className="text-red-500" onClick={() => remove(r)}>Delete</Button>
+                        <Button size="sm" variant="ghost" className="text-bad" onClick={() => remove(r)}>Delete</Button>
                       </>
                     )}
                   </Row>
@@ -191,7 +191,7 @@ function EditModal({ r, memberName, onClose }) {
       <div className="grid grid-cols-2 gap-3">
         <Field label={r.status === 'pending' ? 'Amount ($)' : 'Amount ($) — locked'}>
           <input type="number" min="0" step="0.01" disabled={r.status !== 'pending'}
-            className={`${inputCls} disabled:bg-zinc-50 disabled:text-zinc-400`} value={form.amount}
+            className={`${inputCls} disabled:bg-subtle disabled:text-faint`} value={form.amount}
             onChange={(e) => setForm({ ...form, amount: e.target.value })} />
         </Field>
         <Field label="Date of purchase">
@@ -209,7 +209,7 @@ function EditModal({ r, memberName, onClose }) {
         <TextInput value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
       </Field>
       {r.status !== 'pending' && (
-        <p className="text-[11px] text-amber-700 mb-3">
+        <p className="text-[11px] text-warn mb-3">
           This request is already {r.status} — the amount is locked so it can't drift from the
           approved/credited figures. Use Re-review to change the money side.
         </p>
@@ -226,25 +226,25 @@ function Row({ r, memberName, children }) {
   return (
     <li className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
       <div className="flex-1 min-w-48">
-        <span className="font-medium text-zinc-800">
+        <span className="font-medium text-ink">
           {memberName(r.member_id) ?? 'Unlinked account'} · {cents(r.amount_cents)}
         </span>
-        <span className="block text-xs text-zinc-500">
+        <span className="block text-xs text-muted">
           {r.description}
           {r.category ? ` · ${r.category}` : ''}
           {r.purchase_date ? ` · bought ${r.purchase_date}` : ''}
         </span>
         {r.status !== 'pending' && (
-          <span className="block text-[11px] text-zinc-400">
+          <span className="block text-[11px] text-faint">
             {r.status === 'denied' && (r.decision_note ? `denied — ${r.decision_note}` : 'denied')}
             {r.status !== 'denied' && (
               <>
                 approved {cents(r.approved_amount_cents ?? r.amount_cents)}
-                {r.dues_credit_cents > 0 && <> · <span className="text-sky-600 font-medium">{cents(r.dues_credit_cents)} credited to dues</span></>}
+                {r.dues_credit_cents > 0 && <> · <span className="text-info font-medium">{cents(r.dues_credit_cents)} credited to dues</span></>}
                 {r.status === 'paid'
                   ? <> · paid back {cents(r.paid_amount_cents ?? 0)}</>
                   : (r.approved_amount_cents ?? 0) - (r.dues_credit_cents ?? 0) > 0 &&
-                    <> · <span className="text-amber-700 font-medium">{cents((r.approved_amount_cents ?? 0) - (r.dues_credit_cents ?? 0))} to pay back</span></>}
+                    <> · <span className="text-warn font-medium">{cents((r.approved_amount_cents ?? 0) - (r.dues_credit_cents ?? 0))} to pay back</span></>}
               </>
             )}
           </span>
@@ -321,7 +321,7 @@ function SubmitCard({ onSubmitted }) {
           <Field label="Receipt (photo/PDF)">
             <input
               type="file" accept="image/*,application/pdf"
-              className="w-full text-xs text-zinc-500 file:mr-2 file:px-3 file:py-2 file:rounded-xl file:border file:border-zinc-300 file:bg-white file:text-zinc-700 file:text-xs file:cursor-pointer"
+              className="w-full text-xs text-muted file:mr-2 file:px-3 file:py-2 file:rounded-xl file:border file:border-line-strong file:bg-surface file:text-ink file:text-xs file:cursor-pointer"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             />
           </Field>
@@ -334,7 +334,7 @@ function SubmitCard({ onSubmitted }) {
           />
         </Field>
         <div className="flex items-center justify-between">
-          {done ? <span className="text-sm text-emerald-700 font-medium">✓ Submitted — the board will review it.</span> : <span />}
+          {done ? <span className="text-sm text-good font-medium">✓ Submitted — the board will review it.</span> : <span />}
           <Button variant="primary" disabled={busy || !Number(form.amount) || !form.description.trim()} onClick={submit}>
             {busy ? 'Submitting…' : 'Submit request'}
           </Button>
@@ -369,8 +369,8 @@ function DecideModal({ r, memberName, onClose }) {
 
   return (
     <Modal title={`Review — ${memberName(r.member_id) ?? 'unlinked'} · ${cents(r.amount_cents)}`} onClose={onClose}>
-      <p className="text-sm text-zinc-600 mb-1">{r.description}</p>
-      <p className="text-xs text-zinc-400 mb-4">
+      <p className="text-sm text-muted mb-1">{r.description}</p>
+      <p className="text-xs text-faint mb-4">
         {r.category ?? 'no category'}{r.purchase_date ? ` · bought ${r.purchase_date}` : ''}
         {r.receipt_file_id && <> · <ReceiptLink id={r.receipt_file_id} className="underline" /></>}
       </p>
@@ -382,7 +382,7 @@ function DecideModal({ r, memberName, onClose }) {
           <input type="number" min="0" step="0.01" className={inputCls} value={credit} onChange={(e) => setCredit(e.target.value)} />
         </Field>
       </div>
-      <p className="text-xs text-zinc-500 mb-3">
+      <p className="text-xs text-muted mb-3">
         {creditC > 0 && <>{cents(creditC)} comes off what they owe. </>}
         {payout > 0 ? <>{cents(payout)} to pay back in cash/Venmo (mark it paid later).</> : 'Nothing to pay out.'}
         {' '}Check their outstanding on the Dues grid to pick the split.

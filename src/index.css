@@ -1,18 +1,123 @@
 @import "tailwindcss";
 
-@theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+/* Dark mode is driven by data-theme on <html> (set by theme.jsx). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ---- semantic tokens: one definition, both themes flip the vars ---- */
+:root {
+  --ground: #f6f6f8;
+  --surface: #ffffff;
+  --subtle: #f1f1f4;
+  --raised: #ffffff;
+  --line: #e7e7ec;
+  --line-strong: #d6d6de;
+  --ink: #191920;
+  --muted: #61616c;
+  --faint: #9797a2;
+  --accent: #6366f1;
+  --accent-strong: #4f46e5;
+  --accent-soft: #ecebfd;
+  --accent-ink: #ffffff;
+
+  --good: #0f9d6b;      --good-soft: #e4f6ee;
+  --warn: #b4740f;      --warn-soft: #fbf0dc;
+  --bad: #d3403f;       --bad-soft: #fae7e7;
+  --info: #0e7fa8;      --info-soft: #e2f2f8;
+  --special: #7c4ddb;   --special-soft: #f0eafb;
+
+  --sidebar: #17171c;
+  --sidebar-ink: #ededf2;
+  --sidebar-muted: #8a8a97;
+  --sidebar-active: rgba(255,255,255,.09);
+  --sidebar-hover: rgba(255,255,255,.05);
+
+  --shadow-sm: 0 1px 2px rgba(24,24,40,.05);
+  --shadow: 0 1px 3px rgba(24,24,40,.06), 0 8px 24px rgba(24,24,40,.05);
+  --shadow-lg: 0 12px 40px rgba(24,24,40,.14);
 }
 
-html, body, #root {
-  height: 100%;
+:root[data-theme="dark"] {
+  --ground: #0d0d10;
+  --surface: #16161b;
+  --subtle: #1e1e25;
+  --raised: #1f1f27;
+  --line: #292930;
+  --line-strong: #3a3a45;
+  --ink: #ededf1;
+  --muted: #a0a0ac;
+  --faint: #6b6b78;
+  --accent: #8b93f8;
+  --accent-strong: #a5abff;
+  --accent-soft: #23234a;
+  --accent-ink: #14141a;
+
+  --good: #34c78f;      --good-soft: #10291f;
+  --warn: #e0a141;      --warn-soft: #2a2010;
+  --bad: #f0736f;       --bad-soft: #2c1717;
+  --info: #48b6d6;      --info-soft: #10262e;
+  --special: #b49bf0;   --special-soft: #241d38;
+
+  --sidebar: #0a0a0d;
+  --sidebar-ink: #ededf2;
+  --sidebar-muted: #7c7c88;
+  --sidebar-active: rgba(255,255,255,.10);
+  --sidebar-hover: rgba(255,255,255,.05);
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow: 0 1px 3px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.3);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,.5);
 }
+
+/* Expose tokens as Tailwind color utilities (bg-surface, text-ink, …). */
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-subtle: var(--subtle);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-good: var(--good);       --color-good-soft: var(--good-soft);
+  --color-warn: var(--warn);       --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);         --color-bad-soft: var(--bad-soft);
+  --color-info: var(--info);       --color-info-soft: var(--info-soft);
+  --color-special: var(--special); --color-special-soft: var(--special-soft);
+  --shadow-card: var(--shadow);
+}
+
+html, body, #root { height: 100%; }
 
 body {
-  @apply bg-zinc-100 text-zinc-800 antialiased;
+  background: var(--ground);
+  color: var(--ink);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* thin scrollbars for calendar panes */
-.thin-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
-.thin-scroll::-webkit-scrollbar-thumb { @apply bg-zinc-300 rounded-full; }
+/* Smooth the theme flip, but never animate layout or the whole tree on load. */
+body, .themed {
+  transition: background-color .25s ease, border-color .25s ease, color .25s ease;
+}
+
+/* thin, theme-aware scrollbars */
+.thin-scroll::-webkit-scrollbar { width: 9px; height: 9px; }
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: var(--line-strong); border-radius: 99px;
+  border: 2px solid transparent; background-clip: padding-box;
+}
+.thin-scroll::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip: padding-box; }
 .thin-scroll::-webkit-scrollbar-track { background: transparent; }
+
+::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, body, .themed { transition: none !important; }
+}

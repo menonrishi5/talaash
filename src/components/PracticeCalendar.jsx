@@ -59,8 +59,8 @@ export default function PracticeCalendar() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-xl font-bold text-zinc-900 mb-1">Practice Calendar</h1>
-          <p className="text-sm text-zinc-500">
+          <h1 className="text-xl font-bold text-ink mb-1">Practice Calendar</h1>
+          <p className="text-sm text-muted">
             {canEdit ? 'Drag on the grid to schedule a segment run.' : 'What’s being practiced when.'}
           </p>
         </div>
@@ -68,7 +68,7 @@ export default function PracticeCalendar() {
           <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, -7))}>‹</Button>
           <Button size="sm" onClick={() => setWeekISO(weekStartISO())}>Today</Button>
           <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, 7))}>›</Button>
-          <span className="text-sm font-semibold text-zinc-700 ml-2 w-36 text-right">{fmtWeekRange(weekISO)}</span>
+          <span className="text-sm font-semibold text-ink ml-2 w-36 text-right">{fmtWeekRange(weekISO)}</span>
         </div>
       </div>
 
@@ -184,7 +184,7 @@ function Tracker({ segIndex }) {
       <div className="px-5 pb-5 overflow-x-auto thin-scroll">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-400">
+            <tr className="text-left text-[11px] uppercase tracking-wide text-faint">
               <th className="pb-2 pr-3 font-medium">Segment</th>
               <th className="pb-2 pr-3 font-medium">Last practiced</th>
               <th className="pb-2 pr-3 font-medium">Total hours</th>
@@ -193,31 +193,31 @@ function Tracker({ segIndex }) {
               <th className="pb-2 font-medium">Upcoming</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100">
+          <tbody className="divide-y divide-line">
             {rows.map(({ seg, totalMin, weekMin, lastDate, sessions, upcoming, staleDays }) => (
               <tr key={seg.id}>
                 <td className="py-2.5 pr-3">
-                  <span className="inline-flex items-center gap-2 font-medium text-zinc-800">
+                  <span className="inline-flex items-center gap-2 font-medium text-ink">
                     <span className="w-2.5 h-2.5 rounded-full" style={{ background: segColor(segIndex[seg.id]) }} />
                     {seg.name}
                   </span>
                 </td>
                 <td className="py-2.5 pr-3">
                   {lastDate ? (
-                    <span className="text-zinc-600">
-                      {fmtDate(lastDate)} <span className="text-zinc-400">({relativeDays(lastDate)})</span>
+                    <span className="text-muted">
+                      {fmtDate(lastDate)} <span className="text-faint">({relativeDays(lastDate)})</span>
                     </span>
                   ) : (
-                    <Badge className="bg-red-100 text-red-700">never</Badge>
+                    <Badge className="bg-bad-soft text-bad">never</Badge>
                   )}
                   {staleDays !== Infinity && staleDays > 7 && (
-                    <Badge className="bg-amber-100 text-amber-800 ml-1.5">stale</Badge>
+                    <Badge className="bg-warn-soft text-warn ml-1.5">stale</Badge>
                   )}
                 </td>
-                <td className="py-2.5 pr-3 font-semibold text-zinc-800">{durationLabel(totalMin)}</td>
-                <td className="py-2.5 pr-3 text-zinc-600">{sessions}</td>
-                <td className="py-2.5 pr-3 text-zinc-600">{weekMin ? durationLabel(weekMin) : '—'}</td>
-                <td className="py-2.5 text-zinc-600">{upcoming ? `${upcoming} block${upcoming > 1 ? 's' : ''}` : '—'}</td>
+                <td className="py-2.5 pr-3 font-semibold text-ink">{durationLabel(totalMin)}</td>
+                <td className="py-2.5 pr-3 text-muted">{sessions}</td>
+                <td className="py-2.5 pr-3 text-muted">{weekMin ? durationLabel(weekMin) : '—'}</td>
+                <td className="py-2.5 text-muted">{upcoming ? `${upcoming} block${upcoming > 1 ? 's' : ''}` : '—'}</td>
               </tr>
             ))}
           </tbody>

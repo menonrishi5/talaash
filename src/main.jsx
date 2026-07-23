@@ -5,6 +5,7 @@ import CheckIn from './components/CheckIn.jsx'
 import Login from './components/Login.jsx'
 import { StoreProvider } from './store.jsx'
 import { AuthProvider, useAuth } from './auth.jsx'
+import { ThemeProvider } from './theme.jsx'
 import './index.css'
 
 // Tiny hash router: #/checkin is the public page members open from the QR
@@ -16,7 +17,7 @@ function Root() {
   const { loading, session } = useAuth()
   if (loading) {
     return (
-      <div className="min-h-full flex items-center justify-center text-sm text-zinc-400">
+      <div className="min-h-full flex items-center justify-center text-sm text-faint">
         Loading…
       </div>
     )
@@ -31,12 +32,14 @@ function Root() {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {isCheckIn() ? (
-      <CheckIn />
-    ) : (
-      <AuthProvider>
-        <Root />
-      </AuthProvider>
-    )}
+    <ThemeProvider>
+      {isCheckIn() ? (
+        <CheckIn />
+      ) : (
+        <AuthProvider>
+          <Root />
+        </AuthProvider>
+      )}
+    </ThemeProvider>
   </React.StrictMode>,
 )

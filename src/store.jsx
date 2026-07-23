@@ -39,6 +39,15 @@ const DEFAULT_STATE = {
     benchingAcceptDeadlineHours: 12,
     // Slack channel id for the weekly benching digest (bot must be in it).
     slackDigestChannel: '',
+    // Weekly practice schedule: [{id, day:0-6 (Mon=0), startMin}]. Anchors the
+    // excuse-form deadline. Defaults to the team's Tue/Thu/Sun 7 PM.
+    practiceSchedule: [
+      { id: 'p-tue', day: 1, startMin: 19 * 60 },
+      { id: 'p-thu', day: 3, startMin: 19 * 60 },
+      { id: 'p-sun', day: 6, startMin: 19 * 60 },
+    ],
+    // Excuse form closes this many hours before a practice starts.
+    excuseWindowHours: 5,
   },
 }
 

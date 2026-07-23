@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import QRCode from 'qrcode'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { supabase, todayTeamISO, fmtTeamTime } from '../supabase.js'
-import { minToLabel, fmtDate } from '../lib.js'
+import { minToLabel, fmtDate, nextPractice, DAY_NAMES } from '../lib.js'
 import { isActive, buildMatcher } from '../matching.js'
 import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, ViewToggle, inputCls } from './ui.jsx'
 
@@ -73,10 +73,12 @@ function MyAttendance() {
     })()
   }, [])
 
-  const fined = (checkins ?? []).reduce((n, c) => n + Number(c.fine), 0)
+  // Fines awaiting board approval don't count yet.
+  const fined = (checkins ?? []).reduce((n, c) => n + (c.fine_pending ? 0 : Number(c.fine)), 0)
+  const pendingFine = (checkins ?? []).reduce((n, c) => n + (c.fine_pending ? Number(c.fine) : 0), 0)
   const paid = pays.reduce((n, p) => n + Number(p.amount), 0)
   const due = Math.max(0, fined - paid)
-  const late = (checkins ?? []).filter((c) => c.mins_late > 0).length
+  const late = (checkins ?? []).filter((c) => c.mins_late > 0 && !c.no_show).length
 
   return (
     <div>
@@ -98,6 +100,8 @@ function MyAttendance() {
           </div>
         </Card>
       )}
+
+      <ExcuseForm />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         {[
@@ -153,14 +157,154 @@ function MyAttendance() {
   )
 }
 
+// Member-facing excuse form for the next scheduled practice. Late excuses set
+// a personal cutoff (auto); "not coming" goes to the board to approve/deny.
+function ExcuseForm() {
+  const { state } = useStore()
+  const { memberId } = useAuth()
+  const sched = state.settings?.practiceSchedule ?? []
+  const windowH = state.settings?.excuseWindowHours ?? 5
+  const next = useMemo(() => nextPractice(sched), [sched])
+  const [existing, setExisting] = useState(undefined) // undefined=loading, null=none
+  const [coming, setComing] = useState('yes')
+  const [arrival, setArrival] = useState(19 * 60)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  useEffect(() => {
+    if (!next || !memberId) { setExisting(null); return }
+    setExisting(undefined)
+    supabase.from('excuses').select('*').eq('practice_date', next.dateISO).eq('member_id', memberId).maybeSingle()
+      .then(({ data }) => {
+        setExisting(data ?? null)
+        if (data) {
+          setComing(data.coming ? 'yes' : 'no')
+          setArrival(data.arrival_min ?? next.startMin)
+          setReason(data.reason)
+        } else {
+          setArrival(next.startMin)
+        }
+      })
+  }, [next?.dateISO, memberId])
+
+  if (!next || !memberId) return null
+  const open = next.minsUntil > windowH * 60
+  const arrivalOpts = []
+  for (let m = next.startMin; m <= next.startMin + 240; m += 15) arrivalOpts.push(m)
+
+  const submit = async () => {
+    if (reason.trim().length < 3) { setMsg({ k: 'e', t: 'Please write a short explanation.' }); return }
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('submit_excuse', {
+      p_date: next.dateISO,
+      p_coming: coming === 'yes',
+      p_arrival_min: coming === 'yes' ? arrival : null,
+      p_reason: reason.trim(),
+    })
+    setBusy(false)
+    if (error || !data?.ok) { setMsg({ k: 'e', t: error?.message ?? data?.error }); return }
+    setMsg({ k: 'ok', t: 'Submitted. You can update it until the window closes.' })
+    setExisting({ coming: coming === 'yes', arrival_min: arrival, reason: reason.trim(), status: coming === 'yes' ? 'auto' : 'pending' })
+  }
+
+  const whenLabel = `${DAY_NAMES[next.day]}, ${fmtDate(next.dateISO)} at ${minToLabel(next.startMin)}`
+
+  return (
+    <Card className="mb-5">
+      <CardHeader
+        title="Excuse for next practice"
+        subtitle={`${whenLabel} · form closes ${windowH}h before start`}
+      />
+      <div className="px-5 pb-5">
+        {existing === undefined ? (
+          <p className="text-sm text-faint">Loading…</p>
+        ) : !open ? (
+          <div className="text-sm text-muted">
+            The excuse window for this practice has closed.
+            {existing && (
+              <span className="block mt-1 text-xs">
+                Your submitted excuse: {existing.coming
+                  ? `arriving ${minToLabel(existing.arrival_min)}`
+                  : 'not coming'} — “{existing.reason}”
+                {!existing.coming && <> · <ExcuseStatusBadge status={existing.status} /></>}
+              </span>
+            )}
+          </div>
+        ) : (
+          <>
+            {existing && (
+              <div className="mb-3 text-xs text-muted bg-subtle rounded-lg px-3 py-2">
+                You already submitted{existing.status === 'denied' ? ' (denied — you can resubmit)' : ''}. Editing replaces it.
+              </div>
+            )}
+            <div className="flex gap-2 mb-3">
+              {[['yes', "I'm coming"], ['no', "I can't make it"]].map(([v, l]) => (
+                <button
+                  key={v}
+                  onClick={() => setComing(v)}
+                  className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors cursor-pointer ${
+                    coming === v ? 'bg-accent text-accent-ink border-accent' : 'bg-surface border-line-strong text-muted hover:border-faint'
+                  }`}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+            {coming === 'yes' && (
+              <Field label="When will you arrive? (this becomes your fine time)">
+                <Select value={arrival} onChange={(e) => setArrival(Number(e.target.value))}>
+                  {arrivalOpts.map((m) => <option key={m} value={m}>{minToLabel(m)}</option>)}
+                </Select>
+              </Field>
+            )}
+            <Field label="Explanation (required)">
+              <textarea
+                className={`${inputCls} h-20 resize-y`}
+                placeholder={coming === 'yes' ? 'e.g. class runs until 7:30, heading straight over' : 'e.g. out of town for a family event'}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </Field>
+            {msg && <p className={`text-sm mb-2 ${msg.k === 'e' ? 'text-bad' : 'text-good'}`}>{msg.t}</p>}
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] text-faint">
+                {coming === 'yes'
+                  ? 'Arriving by your stated time = no fine. Later than that still needs board review.'
+                  : 'The board will approve or deny this absence.'}
+              </p>
+              <Button variant="primary" disabled={busy} onClick={submit}>
+                {busy ? 'Submitting…' : existing ? 'Update excuse' : 'Submit excuse'}
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+function ExcuseStatusBadge({ status }) {
+  const map = {
+    auto: ['bg-info-soft text-info', 'auto-applied'],
+    pending: ['bg-warn-soft text-warn', 'pending review'],
+    approved: ['bg-good-soft text-good', 'excused'],
+    denied: ['bg-bad-soft text-bad', 'denied'],
+  }
+  const [cls, label] = map[status] ?? map.pending
+  return <Badge className={cls}>{label}</Badge>
+}
+
 function AttendanceAdmin() {
   const { canEdit } = useAuth()
   const todayISO = todayTeamISO()
   const [session, setSession] = useState(null) // today's session row, or null
   const [checkins, setCheckins] = useState([])
+  const [excuses, setExcuses] = useState([]) // today's + pending absence excuses
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [payModal, setPayModal] = useState(false)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -191,6 +335,13 @@ function AttendanceAdmin() {
       } else {
         setCheckins([])
       }
+      // Excuses for today, plus any pending absence excuses for upcoming dates.
+      const { data: exc } = await supabase
+        .from('excuses')
+        .select('*')
+        .or(`practice_date.eq.${todayISO},status.eq.pending`)
+        .order('practice_date')
+      setExcuses(exc ?? [])
       setError(null)
     } catch (e) {
       console.error(e)
@@ -216,7 +367,10 @@ function AttendanceAdmin() {
             Check-in link + rotating password per practice; fines compute on the server clock.
           </p>
         </div>
-        {canEdit && <Button size="sm" onClick={() => setPayModal(true)}>Record payment</Button>}
+        <div className="flex items-center gap-2">
+          {canEdit && <Button size="sm" onClick={() => setScheduleOpen(true)}>Practice schedule</Button>}
+          {canEdit && <Button size="sm" onClick={() => setPayModal(true)}>Record payment</Button>}
+        </div>
       </div>
 
       {error && (
@@ -225,10 +379,13 @@ function AttendanceAdmin() {
         </div>
       )}
 
+      <AbsenceReview excuses={excuses} onChanged={refresh} />
+      <PendingFineReview checkins={checkins} excuses={excuses} onChanged={refresh} />
+
       {loading ? (
         <Card><div className="p-8 text-sm text-faint">Loading…</div></Card>
       ) : session ? (
-        <LiveSession session={session} checkins={checkins} refresh={refresh} />
+        <LiveSession session={session} checkins={checkins} excuses={excuses} refresh={refresh} />
       ) : canEdit ? (
         <StartSession todayISO={todayISO} onCreated={refresh} />
       ) : (
@@ -244,7 +401,131 @@ function AttendanceAdmin() {
       <History todayISO={todayISO} />
 
       {payModal && <PaymentModal onClose={() => { setPayModal(false) }} />}
+      {scheduleOpen && <ScheduleModal onClose={() => setScheduleOpen(false)} />}
     </div>
+  )
+}
+
+// Practice schedule (anchors the excuse deadline) + excuse window, editor-only.
+function ScheduleModal({ onClose }) {
+  const { state, setSettings } = useStore()
+  const [rows, setRows] = useState(() => (state.settings?.practiceSchedule ?? []).map((p) => ({ ...p })))
+  const [windowH, setWindowH] = useState(state.settings?.excuseWindowHours ?? 5)
+
+  const timeOpts = []
+  for (let m = 8 * 60; m <= 23 * 60; m += 30) timeOpts.push(m)
+
+  const addRow = () => setRows([...rows, { id: 'p-' + Math.random().toString(36).slice(2, 7), day: 1, startMin: 19 * 60 }])
+  const save = () => {
+    setSettings({ practiceSchedule: rows, excuseWindowHours: Number(windowH) || 5 })
+    onClose()
+  }
+
+  return (
+    <Modal title="Practice schedule" onClose={onClose}>
+      <p className="text-xs text-muted mb-3">
+        Set which days you practice and when they start. The excuse form anchors to the next one
+        and closes the set number of hours before start. Change these any time your week shifts.
+      </p>
+      <div className="space-y-2 mb-4">
+        {rows.map((r, i) => (
+          <div key={r.id} className="flex items-center gap-2">
+            <Select className="!flex-1" value={r.day} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, day: Number(e.target.value) } : x))}>
+              {DAY_NAMES.map((d, di) => <option key={d} value={di}>{d}</option>)}
+            </Select>
+            <Select className="!w-32" value={r.startMin} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, startMin: Number(e.target.value) } : x))}>
+              {timeOpts.map((m) => <option key={m} value={m}>{minToLabel(m)}</option>)}
+            </Select>
+            <button className="text-faint hover:text-bad cursor-pointer px-1" onClick={() => setRows(rows.filter((_, j) => j !== i))}>✕</button>
+          </div>
+        ))}
+        {rows.length === 0 && <p className="text-sm text-faint italic">No practice days set.</p>}
+      </div>
+      <Button size="sm" variant="ghost" onClick={addRow}>+ Add practice day</Button>
+      <div className="mt-4 flex items-center gap-2">
+        <span className="text-xs text-muted">Excuse form closes</span>
+        <input type="number" min="0" step="0.5" className="w-16 px-2 py-1 text-sm bg-surface border border-line-strong rounded-lg"
+          value={windowH} onChange={(e) => setWindowH(e.target.value)} />
+        <span className="text-xs text-muted">hours before start</span>
+      </div>
+      <div className="flex justify-end gap-2 mt-5">
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="primary" onClick={save}>Save schedule</Button>
+      </div>
+    </Modal>
+  )
+}
+
+// Pending "not coming" excuses awaiting an approve/deny decision.
+function AbsenceReview({ excuses, onChanged }) {
+  const { state } = useStore()
+  const pending = (excuses ?? []).filter((e) => !e.coming && e.status === 'pending')
+  if (pending.length === 0) return null
+  const nameOf = (id) => state.roster.find((m) => m.id === id)?.name ?? 'Unknown'
+
+  const decide = async (ex, status) => {
+    const { error } = await supabase.from('excuses')
+      .update({ status, decided_at: new Date().toISOString() }).eq('id', ex.id)
+    if (error) alert('Could not save: ' + error.message)
+    onChanged()
+  }
+
+  return (
+    <Card className="mb-5">
+      <CardHeader
+        title={`Absence excuses to review (${pending.length})`}
+        subtitle="Members who said they can't make it. Approve = excused (no fine); deny = they're a normal no-show at session end."
+      />
+      <ul className="px-5 pb-5 divide-y divide-line">
+        {pending.map((ex) => (
+          <li key={ex.id} className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
+            <div className="flex-1 min-w-52">
+              <span className="font-medium text-ink">{nameOf(ex.member_id)}</span>
+              <span className="text-xs text-faint"> · {fmtDate(ex.practice_date)}</span>
+              <span className="block text-xs text-muted">“{ex.reason}”</span>
+            </div>
+            <Button size="sm" variant="success" onClick={() => decide(ex, 'approved')}>Excuse</Button>
+            <Button size="sm" variant="danger" onClick={() => decide(ex, 'denied')}>Deny</Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
+}
+
+// Fines from excuse-adjusted cutoffs, held until the board approves.
+function PendingFineReview({ checkins, excuses, onChanged }) {
+  const pending = (checkins ?? []).filter((c) => c.fine_pending)
+  if (pending.length === 0) return null
+  const reasonFor = (memberId) => excuses.find((e) => e.member_id === memberId && e.coming)?.reason
+
+  const resolve = async (c, apply) => {
+    const patch = apply ? { fine_pending: false } : { fine: 0, fine_pending: false }
+    const { error } = await supabase.from('checkins').update(patch).eq('id', c.id)
+    if (error) alert('Could not save: ' + error.message)
+    onChanged()
+  }
+
+  return (
+    <Card className="mb-5">
+      <CardHeader
+        title={`Fines to approve (${pending.length})`}
+        subtitle="These came from an excused member arriving after their own stated time. Nothing counts until you approve it."
+      />
+      <ul className="px-5 pb-5 divide-y divide-line">
+        {pending.map((c) => (
+          <li key={c.id} className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
+            <div className="flex-1 min-w-52">
+              <span className="font-medium text-ink">{c.member_name}</span>
+              <span className="text-xs text-faint"> · in {c.mins_late} min late · {money(c.fine)}</span>
+              {reasonFor(c.member_id) && <span className="block text-xs text-muted">excuse: “{reasonFor(c.member_id)}”</span>}
+            </div>
+            <Button size="sm" variant="danger" onClick={() => resolve(c, true)}>Apply {money(c.fine)}</Button>
+            <Button size="sm" variant="success" onClick={() => resolve(c, false)}>Waive</Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
   )
 }
 
@@ -350,7 +631,7 @@ function StartSession({ todayISO, onCreated }) {
 
 // ---- live session dashboard ----
 
-function LiveSession({ session, checkins, refresh }) {
+function LiveSession({ session, checkins, excuses = [], refresh }) {
   const { state } = useStore()
   const { canEdit } = useAuth()
   const [qr, setQr] = useState(null)
@@ -399,7 +680,9 @@ function LiveSession({ session, checkins, refresh }) {
     refresh()
   }
 
-  const totalFines = checkins.reduce((n, c) => n + Number(c.fine), 0)
+  const totalFines = checkins.reduce((n, c) => n + (c.fine_pending ? 0 : Number(c.fine)), 0)
+  // Excuse lookup for the no-show review.
+  const excuseFor = (memberId) => excuses.find((e) => e.member_id === memberId && e.practice_date === session.session_date)
 
   // Editors can adjust a fine without touching the check-in (waive = 0).
   const editFine = async (c) => {
@@ -541,7 +824,11 @@ function LiveSession({ session, checkins, refresh }) {
                           : <Badge className="bg-good-soft text-good">on time</Badge>}
                     </td>
                     <td className="py-2 pr-3 font-semibold text-ink whitespace-nowrap">
-                      {Number(c.fine) > 0 ? <span className="text-bad">{money(c.fine)}</span> : '—'}
+                      {Number(c.fine) > 0
+                        ? <span className={c.fine_pending ? 'text-warn' : 'text-bad'} title={c.fine_pending ? 'Held for your approval (excused member arrived late)' : undefined}>
+                            {money(c.fine)}{c.fine_pending ? ' ⏳' : ''}
+                          </span>
+                        : '—'}
                       {canEdit && (
                         <button
                           className="ml-1.5 text-faint hover:text-muted cursor-pointer text-xs"
@@ -582,13 +869,25 @@ function LiveSession({ session, checkins, refresh }) {
                 ⚠ No-shows to review ({missing.length}) — fine or excuse each
               </p>
               <ul className="divide-y divide-line">
-                {missing.map((m) => (
-                  <li key={m.id} className="py-1.5 flex items-center gap-2 text-sm">
-                    <span className="flex-1 font-medium text-ink">{m.name}</span>
-                    <Button size="sm" variant="danger" onClick={() => fineNoShow(m)}>Fine</Button>
-                    <Button size="sm" variant="ghost" onClick={() => recordNoShow(m, 0)}>Excuse</Button>
-                  </li>
-                ))}
+                {missing.map((m) => {
+                  const ex = excuseFor(m.id)
+                  const preExcused = ex && !ex.coming && ex.status === 'approved'
+                  return (
+                    <li key={m.id} className="py-1.5 flex items-center gap-2 text-sm flex-wrap">
+                      <div className="flex-1 min-w-40">
+                        <span className="font-medium text-ink">{m.name}</span>
+                        {ex && (
+                          <span className="block text-[11px] text-muted">
+                            {ex.coming ? 'said coming but never checked in' : 'excuse'}: “{ex.reason}”
+                            {' '}<ExcuseStatusBadge status={ex.status} />
+                          </span>
+                        )}
+                      </div>
+                      <Button size="sm" variant={preExcused ? 'ghost' : 'danger'} onClick={() => fineNoShow(m)}>Fine</Button>
+                      <Button size="sm" variant={preExcused ? 'success' : 'ghost'} onClick={() => recordNoShow(m, 0)}>Excuse</Button>
+                    </li>
+                  )
+                })}
               </ul>
             </>
           )}
@@ -698,7 +997,7 @@ function Ledger() {
   useEffect(() => {
     ;(async () => {
       const [{ data: fines }, { data: pays }] = await Promise.all([
-        supabase.from('checkins').select('member_id, member_name, fine, no_show'),
+        supabase.from('checkins').select('member_id, member_name, fine, no_show, fine_pending'),
         supabase.from('payments').select('member_id, amount'),
       ])
       if (!fines) return
@@ -707,7 +1006,7 @@ function Ledger() {
       for (const c of fines) {
         const r = bump(c.member_id, c.member_name)
         if (!c.no_show) r.attended += 1
-        r.fined += Number(c.fine)
+        if (!c.fine_pending) r.fined += Number(c.fine) // pending fines don't count yet
         r.name = c.member_name
       }
       for (const p of pays || []) {

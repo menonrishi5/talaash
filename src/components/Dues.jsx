@@ -55,14 +55,17 @@ function DuesAdmin() {
     const [{ data, error }, { data: rb }, { data: fines }, { data: finePays }] = await Promise.all([
       supabase.from('zeffy_payments').select('*').order('created', { ascending: false }),
       supabase.from('reimbursements').select('member_id,status,dues_credit_cents').in('status', ['approved', 'paid']),
-      supabase.from('checkins').select('member_id,fine'),
+      supabase.from('checkins').select('member_id,fine,fine_pending'),
       supabase.from('payments').select('member_id,amount'),
     ])
     if (!error) setPayments(data)
     if (rb) setReimbs(rb)
-    // Outstanding attendance fines fold into what each member owes.
+    // Outstanding attendance fines fold into what each member owes (approved only).
     const due = {}
-    for (const c of fines ?? []) due[c.member_id] = (due[c.member_id] || 0) + Math.round(Number(c.fine) * 100)
+    for (const c of fines ?? []) {
+      if (c.fine_pending) continue
+      due[c.member_id] = (due[c.member_id] || 0) + Math.round(Number(c.fine) * 100)
+    }
     for (const p of finePays ?? []) {
       if (p.member_id) due[p.member_id] = (due[p.member_id] || 0) - Math.round(Number(p.amount) * 100)
     }
@@ -803,13 +806,13 @@ function MyDues() {
         supabase.rpc('get_my_dues'),
         supabase.from('zeffy_payments').select('*').order('created', { ascending: false }),
         supabase.from('reimbursements').select('*').in('status', ['approved', 'paid']),
-        supabase.from('checkins').select('fine'),   // RLS: own rows only
+        supabase.from('checkins').select('fine,fine_pending'), // RLS: own rows only
         supabase.from('payments').select('amount'), // RLS: own rows only
       ])
       setInfo(d ?? { linked: false })
       setRows(pays ?? [])
       setReimbs(rb ?? [])
-      const fined = (fines ?? []).reduce((n, c) => n + Math.round(Number(c.fine) * 100), 0)
+      const fined = (fines ?? []).reduce((n, c) => n + (c.fine_pending ? 0 : Math.round(Number(c.fine) * 100)), 0)
       const paid = (finePays ?? []).reduce((n, p) => n + Math.round(Number(p.amount) * 100), 0)
       setFinesDue(Math.max(0, fined - paid))
     })()

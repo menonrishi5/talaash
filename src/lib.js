@@ -5,6 +5,42 @@ export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().to
 export const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 export const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
+const TEAM_TZ = 'America/Chicago'
+
+// Current time in the team's timezone: { iso 'YYYY-MM-DD', min (since midnight), day 0-6 Mon=0 }.
+export function teamNow() {
+  const now = new Date()
+  const iso = now.toLocaleDateString('en-CA', { timeZone: TEAM_TZ })
+  const [h, m] = now
+    .toLocaleTimeString('en-GB', { timeZone: TEAM_TZ, hour12: false, hour: '2-digit', minute: '2-digit' })
+    .split(':')
+    .map(Number)
+  const day = (new Date(iso + 'T00:00:00').getDay() + 6) % 7 // Mon=0
+  return { iso, min: h * 60 + m, day }
+}
+
+// The soonest upcoming practice from a weekly schedule ([{day,startMin}]),
+// relative to team-local now. Returns { dateISO, day, startMin, minsUntil } or null.
+export function nextPractice(schedule, windowHours = 0) {
+  if (!schedule?.length) return null
+  const { iso, min, day } = teamNow()
+  let best = null
+  for (let ahead = 0; ahead <= 7; ahead++) {
+    const d = (day + ahead) % 7
+    for (const p of schedule) {
+      if (p.day !== d) continue
+      // today: only if it hasn't already started
+      if (ahead === 0 && p.startMin <= min) continue
+      const minsUntil = ahead * 1440 + (p.startMin - min)
+      if (best === null || minsUntil < best.minsUntil) {
+        best = { dateISO: addDaysISO(iso, ahead), day: d, startMin: p.startMin, minsUntil }
+      }
+    }
+    if (best && ahead >= 0 && best.minsUntil <= (ahead + 1) * 1440) break
+  }
+  return best
+}
+
 // ---- time (minutes since midnight) ----
 
 export function minToLabel(min) {

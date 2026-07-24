@@ -368,6 +368,7 @@ function AttendanceAdmin() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canEdit && <AnnounceButton />}
           {canEdit && <Button size="sm" onClick={() => setScheduleOpen(true)}>Practice schedule</Button>}
           {canEdit && <Button size="sm" onClick={() => setPayModal(true)}>Record payment</Button>}
         </div>
@@ -406,18 +407,58 @@ function AttendanceAdmin() {
   )
 }
 
+// Manually announce the next practice to the #attendance channel, which also
+// arms the automatic window-close reminder + board summary for that date.
+function AnnounceButton() {
+  const { state } = useStore()
+  const sched = state.settings?.practiceSchedule ?? []
+  const next = useMemo(() => nextPractice(sched), [sched])
+  const [busy, setBusy] = useState(false)
+
+  const announce = async () => {
+    if (!next) return alert('Set up your practice schedule first.')
+    if (!state.settings?.slackAttendanceChannel)
+      return alert('Set the attendance Slack channel in Practice schedule first.')
+    if (!confirm(`Announce ${DAY_NAMES[next.day]} ${fmtDate(next.dateISO)} at ${minToLabel(next.startMin)} to the team?`)) return
+    setBusy(true)
+    try {
+      await supabase.from('attendance_announcements').upsert({ practice_date: next.dateISO })
+      const { data, error } = await supabase.functions.invoke('attendance-notify', {
+        body: { kind: 'announce', practice_date: next.dateISO },
+      })
+      if (error || !data?.ok) throw new Error(error?.message ?? data?.error)
+      alert('Announced to the channel. The window-close reminder and board summary are now armed.')
+    } catch (e) {
+      alert('Could not announce: ' + (e.message ?? e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Button size="sm" variant="primary" disabled={busy} onClick={announce}>
+      {busy ? 'Announcing…' : '📣 Announce practice'}
+    </Button>
+  )
+}
+
 // Practice schedule (anchors the excuse deadline) + excuse window, editor-only.
 function ScheduleModal({ onClose }) {
   const { state, setSettings } = useStore()
   const [rows, setRows] = useState(() => (state.settings?.practiceSchedule ?? []).map((p) => ({ ...p })))
   const [windowH, setWindowH] = useState(state.settings?.excuseWindowHours ?? 5)
 
+  const [channel, setChannel] = useState(state.settings?.slackAttendanceChannel ?? '')
   const timeOpts = []
   for (let m = 8 * 60; m <= 23 * 60; m += 30) timeOpts.push(m)
 
   const addRow = () => setRows([...rows, { id: 'p-' + Math.random().toString(36).slice(2, 7), day: 1, startMin: 19 * 60 }])
   const save = () => {
-    setSettings({ practiceSchedule: rows, excuseWindowHours: Number(windowH) || 5 })
+    setSettings({
+      practiceSchedule: rows,
+      excuseWindowHours: Number(windowH) || 5,
+      slackAttendanceChannel: channel.trim(),
+    })
     onClose()
   }
 
@@ -448,9 +489,19 @@ function ScheduleModal({ onClose }) {
           value={windowH} onChange={(e) => setWindowH(e.target.value)} />
         <span className="text-xs text-muted">hours before start</span>
       </div>
+      <div className="mt-4 pt-4 border-t border-line">
+        <span className="block text-xs font-medium text-muted mb-1">Attendance Slack channel ID</span>
+        <input
+          className={`${inputCls} !py-1.5`}
+          placeholder="e.g. C0123ABCD (for the Announce button + reminders)"
+          value={channel}
+          onChange={(e) => setChannel(e.target.value)}
+        />
+        <p className="text-[11px] text-faint mt-1">Invite the bot to this channel first. Board summaries DM editors privately.</p>
+      </div>
       <div className="flex justify-end gap-2 mt-5">
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" onClick={save}>Save schedule</Button>
+        <Button variant="primary" onClick={save}>Save</Button>
       </div>
     </Modal>
   )
@@ -660,6 +711,8 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
       .update({ ended_at: new Date().toISOString() })
       .eq('id', session.id)
     if (error) { alert('Could not end the session: ' + error.message); return }
+    // Post the recap to the attendance channel (no-op if no channel set).
+    supabase.functions.invoke('attendance-notify', { body: { kind: 'recap', session_id: session.id } }).catch(() => {})
     refresh()
   }
 

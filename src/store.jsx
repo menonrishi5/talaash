@@ -48,6 +48,8 @@ const DEFAULT_STATE = {
     ],
     // Excuse form closes this many hours before a practice starts.
     excuseWindowHours: 5,
+    // Slack channel id for attendance announcements (bot must be in it).
+    slackAttendanceChannel: '',
   },
 }
 

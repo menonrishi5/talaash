@@ -157,8 +157,8 @@ function MyAttendance() {
   )
 }
 
-// Member-facing excuse form for the next scheduled practice. Late excuses set
-// a personal cutoff (auto); "not coming" goes to the board to approve/deny.
+// Attendance is assumed — members only touch this if something's wrong.
+// A compact prompt opens the excuse popup; nobody has to confirm they're coming.
 function ExcuseForm() {
   const { state } = useStore()
   const { memberId } = useAuth()
@@ -166,123 +166,157 @@ function ExcuseForm() {
   const windowH = state.settings?.excuseWindowHours ?? 5
   const next = useMemo(() => nextPractice(sched), [sched])
   const [existing, setExisting] = useState(undefined) // undefined=loading, null=none
-  const [coming, setComing] = useState('yes')
-  const [arrival, setArrival] = useState(19 * 60)
-  const [reason, setReason] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState(null)
+  const [open, setOpen] = useState(false)
 
-  useEffect(() => {
+  const load = async () => {
     if (!next || !memberId) { setExisting(null); return }
-    setExisting(undefined)
-    supabase.from('excuses').select('*').eq('practice_date', next.dateISO).eq('member_id', memberId).maybeSingle()
-      .then(({ data }) => {
-        setExisting(data ?? null)
-        if (data) {
-          setComing(data.coming ? 'yes' : 'no')
-          setArrival(data.arrival_min ?? next.startMin)
-          setReason(data.reason)
-        } else {
-          setArrival(next.startMin)
-        }
-      })
-  }, [next?.dateISO, memberId])
+    const { data } = await supabase.from('excuses').select('*')
+      .eq('practice_date', next.dateISO).eq('member_id', memberId).maybeSingle()
+    setExisting(data ?? null)
+  }
+  useEffect(() => { setExisting(undefined); load() }, [next?.dateISO, memberId])
 
-  if (!next || !memberId) return null
-  const open = next.minsUntil > windowH * 60
+  if (!next || !memberId || existing === undefined) return null
+  const inWindow = next.minsUntil > windowH * 60
+  const whenLabel = `${DAY_NAMES[next.day]} ${fmtDate(next.dateISO)} at ${minToLabel(next.startMin)}`
+
+  const withdraw = async () => {
+    if (!confirm("Withdraw your excuse? You'll be expected at practice as normal.")) return
+    const { error } = await supabase.from('excuses').delete().eq('id', existing.id)
+    if (error) return alert('Could not withdraw: ' + error.message)
+    load()
+  }
+
+  return (
+    <>
+      <Card className="mb-5">
+        <div className="px-5 py-4 flex items-center gap-3 flex-wrap">
+          <div className="flex-1 min-w-56">
+            <p className="text-sm font-semibold text-ink">Next practice · {whenLabel}</p>
+            {existing ? (
+              <p className="text-xs text-muted mt-0.5">
+                {existing.coming
+                  ? `You said you'll arrive at ${minToLabel(existing.arrival_min)}`
+                  : "You said you can't make it"}
+                {' '}<ExcuseStatusBadge status={existing.status} />
+                <span className="block text-faint">“{existing.reason}”</span>
+              </p>
+            ) : (
+              <p className="text-xs text-muted mt-0.5">
+                You're expected there — no action needed. Just check in when you arrive.
+              </p>
+            )}
+          </div>
+          {inWindow ? (
+            <div className="flex gap-2">
+              {existing && <Button size="sm" variant="ghost" onClick={withdraw}>Withdraw</Button>}
+              <Button size="sm" onClick={() => setOpen(true)}>
+                {existing ? 'Edit excuse' : "Can't make it / running late?"}
+              </Button>
+            </div>
+          ) : (
+            <span className="text-xs text-faint">Excuse window closed</span>
+          )}
+        </div>
+      </Card>
+      {open && (
+        <ExcuseModal
+          practice={next}
+          existing={existing}
+          onClose={() => setOpen(false)}
+          onSaved={() => { setOpen(false); load() }}
+        />
+      )}
+    </>
+  )
+}
+
+// The popup: pick late (with an arrival time) or absent, and say why.
+function ExcuseModal({ practice, existing, onClose, onSaved }) {
+  const [kind, setKind] = useState(existing ? (existing.coming ? 'late' : 'absent') : null)
+  const [arrival, setArrival] = useState(existing?.arrival_min ?? practice.startMin + 30)
+  const [reason, setReason] = useState(existing?.reason ?? '')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+
   const arrivalOpts = []
-  for (let m = next.startMin; m <= next.startMin + 240; m += 15) arrivalOpts.push(m)
+  for (let m = practice.startMin; m <= practice.startMin + 240; m += 15) arrivalOpts.push(m)
 
   const submit = async () => {
-    if (reason.trim().length < 3) { setMsg({ k: 'e', t: 'Please write a short explanation.' }); return }
-    setBusy(true); setMsg(null)
+    if (!kind) return setErr('Pick what you need first.')
+    if (reason.trim().length < 3) return setErr('Please write a short explanation.')
+    setBusy(true); setErr(null)
     const { data, error } = await supabase.rpc('submit_excuse', {
-      p_date: next.dateISO,
-      p_coming: coming === 'yes',
-      p_arrival_min: coming === 'yes' ? arrival : null,
+      p_date: practice.dateISO,
+      p_coming: kind === 'late',
+      p_arrival_min: kind === 'late' ? arrival : null,
       p_reason: reason.trim(),
     })
     setBusy(false)
-    if (error || !data?.ok) { setMsg({ k: 'e', t: error?.message ?? data?.error }); return }
-    setMsg({ k: 'ok', t: 'Submitted. You can update it until the window closes.' })
-    setExisting({ coming: coming === 'yes', arrival_min: arrival, reason: reason.trim(), status: coming === 'yes' ? 'auto' : 'pending' })
+    if (error || !data?.ok) return setErr(error?.message ?? data?.error)
+    onSaved()
   }
 
-  const whenLabel = `${DAY_NAMES[next.day]}, ${fmtDate(next.dateISO)} at ${minToLabel(next.startMin)}`
-
   return (
-    <Card className="mb-5">
-      <CardHeader
-        title="Excuse for next practice"
-        subtitle={`${whenLabel} · form closes ${windowH}h before start`}
-      />
-      <div className="px-5 pb-5">
-        {existing === undefined ? (
-          <p className="text-sm text-faint">Loading…</p>
-        ) : !open ? (
-          <div className="text-sm text-muted">
-            The excuse window for this practice has closed.
-            {existing && (
-              <span className="block mt-1 text-xs">
-                Your submitted excuse: {existing.coming
-                  ? `arriving ${minToLabel(existing.arrival_min)}`
-                  : 'not coming'} — “{existing.reason}”
-                {!existing.coming && <> · <ExcuseStatusBadge status={existing.status} /></>}
-              </span>
-            )}
-          </div>
-        ) : (
-          <>
-            {existing && (
-              <div className="mb-3 text-xs text-muted bg-subtle rounded-lg px-3 py-2">
-                You already submitted{existing.status === 'denied' ? ' (denied — you can resubmit)' : ''}. Editing replaces it.
-              </div>
-            )}
-            <div className="flex gap-2 mb-3">
-              {[['yes', "I'm coming"], ['no', "I can't make it"]].map(([v, l]) => (
-                <button
-                  key={v}
-                  onClick={() => setComing(v)}
-                  className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors cursor-pointer ${
-                    coming === v ? 'bg-accent text-accent-ink border-accent' : 'bg-surface border-line-strong text-muted hover:border-faint'
-                  }`}
-                >
-                  {l}
-                </button>
-              ))}
-            </div>
-            {coming === 'yes' && (
-              <Field label="When will you arrive? (this becomes your fine time)">
-                <Select value={arrival} onChange={(e) => setArrival(Number(e.target.value))}>
-                  {arrivalOpts.map((m) => <option key={m} value={m}>{minToLabel(m)}</option>)}
-                </Select>
-              </Field>
-            )}
-            <Field label="Explanation (required)">
-              <textarea
-                className={`${inputCls} h-20 resize-y`}
-                placeholder={coming === 'yes' ? 'e.g. class runs until 7:30, heading straight over' : 'e.g. out of town for a family event'}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-              />
-            </Field>
-            {msg && <p className={`text-sm mb-2 ${msg.k === 'e' ? 'text-bad' : 'text-good'}`}>{msg.t}</p>}
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] text-faint">
-                {coming === 'yes'
-                  ? 'Arriving by your stated time = no fine. Later than that still needs board review.'
-                  : 'The board will approve or deny this absence.'}
-              </p>
-              <Button variant="primary" disabled={busy} onClick={submit}>
-                {busy ? 'Submitting…' : existing ? 'Update excuse' : 'Submit excuse'}
-              </Button>
-            </div>
-          </>
-        )}
+    <Modal title={`Excuse — ${DAY_NAMES[practice.day]} ${fmtDate(practice.dateISO)}`} onClose={onClose}>
+      <p className="text-xs text-muted mb-3">
+        Only fill this out if something's wrong — otherwise just show up and check in.
+      </p>
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        {[
+          ['late', "⏰ I'll be late", 'Arriving after the start time'],
+          ['absent', "🚫 I can't make it", 'Missing practice entirely'],
+        ].map(([v, label, hint]) => (
+          <button
+            key={v}
+            onClick={() => setKind(v)}
+            className={`p-3 rounded-xl border text-left transition-colors cursor-pointer ${
+              kind === v ? 'bg-accent text-accent-ink border-accent' : 'bg-surface border-line-strong hover:border-faint'
+            }`}
+          >
+            <span className="block text-sm font-semibold">{label}</span>
+            <span className={`block text-[11px] mt-0.5 ${kind === v ? 'opacity-80' : 'text-faint'}`}>{hint}</span>
+          </button>
+        ))}
       </div>
-    </Card>
+
+      {kind === 'late' && (
+        <Field label="What time will you get there? (this becomes your fine time)">
+          <Select value={arrival} onChange={(e) => setArrival(Number(e.target.value))}>
+            {arrivalOpts.map((m) => <option key={m} value={m}>{minToLabel(m)}</option>)}
+          </Select>
+        </Field>
+      )}
+
+      {kind && (
+        <Field label="Why? (required)">
+          <textarea
+            className={`${inputCls} h-20 resize-y`}
+            placeholder={kind === 'late' ? 'e.g. class runs until 7:30, coming straight over' : 'e.g. out of town for a family event'}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </Field>
+      )}
+
+      {err && <p className="text-sm text-bad mb-2">{err}</p>}
+      <p className="text-[11px] text-faint mb-3">
+        {kind === 'late'
+          ? 'Arriving by your stated time = no fine. Later than that goes to the board to review.'
+          : kind === 'absent'
+            ? 'The board will approve or deny this absence.'
+            : 'You can change or withdraw this until the window closes.'}
+      </p>
+      <div className="flex justify-end gap-2">
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="primary" disabled={busy || !kind} onClick={submit}>
+          {busy ? 'Submitting…' : existing ? 'Update excuse' : 'Submit excuse'}
+        </Button>
+      </div>
+    </Modal>
   )
 }
+
 
 function ExcuseStatusBadge({ status }) {
   const map = {

@@ -124,7 +124,8 @@ function DuesAdmin() {
     [roster, dues.contactLinks],
   )
 
-  // memberId -> set of Zeffy rate_ids they've paid for
+  // memberId -> set of Zeffy rate_ids they've paid for, and the earliest date
+  // each was paid (for late-payment fines).
   const paidRates = useMemo(() => {
     const map = {}
     for (const p of succeeded) {
@@ -133,6 +134,21 @@ function DuesAdmin() {
       for (const item of p.items ?? []) {
         if (!item.rate_id) continue
         ;(map[memberId] = map[memberId] || new Set()).add(item.rate_id)
+      }
+    }
+    return map
+  }, [succeeded, matcher])
+
+  const paidRateDate = useMemo(() => {
+    const map = {} // memberId -> rateId -> earliest ISO date
+    for (const p of succeeded) {
+      const memberId = matcher(p)
+      if (!memberId) continue
+      const date = p.created?.slice(0, 10)
+      for (const item of p.items ?? []) {
+        if (!item.rate_id) continue
+        const m = (map[memberId] = map[memberId] || {})
+        if (!m[item.rate_id] || date < m[item.rate_id]) m[item.rate_id] = date
       }
     }
     return map
@@ -182,6 +198,27 @@ function DuesAdmin() {
   }, [succeeded, matcher])
 
   const categories = [...dues.categories].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  const fineDefaults = state.settings?.dueFineDefaults ?? { lateCents: 500, veryLateCents: 1000, veryLateAfterDays: 7 }
+  const memberById = useMemo(() => Object.fromEntries(roster.map((m) => [m.id, m])), [roster])
+
+  // Late-payment fine for one member on one fee, honoring the fee's due date,
+  // per-fee overrides, the payment-plan exemption, the bulk toggle, and any
+  // individual waiver. Zero unless they actually paid it late.
+  const lateFineFor = (memberId, cat) => {
+    if (!cat.rateId || !cat.dueDate) return 0
+    if (cat.lateFinesActive === false) return 0                 // bulk-waived for this fee
+    if (memberById[memberId]?.paymentPlan) return 0             // on a payment plan
+    if (dues.lateFineWaivers?.[memberId]?.[catId(cat)]) return 0 // individually waived
+    const paid = paidRateDate[memberId]?.[cat.rateId]
+    if (!paid || paid <= cat.dueDate) return 0                  // unpaid or paid on time
+    const daysLate = Math.round((new Date(paid) - new Date(cat.dueDate)) / 86400000)
+    const afterDays = cat.veryLateAfterDays ?? fineDefaults.veryLateAfterDays
+    return daysLate >= afterDays
+      ? (cat.veryLateCents ?? fineDefaults.veryLateCents)
+      : (cat.lateCents ?? fineDefaults.lateCents)
+  }
+  const lateFineTotal = (memberId) =>
+    categories.reduce((sum, c) => sum + lateFineFor(memberId, c), 0)
 
   const cellState = (memberId, cat) => {
     const ov = dues.overrides[memberId]?.[catId(cat)]
@@ -206,7 +243,7 @@ function DuesAdmin() {
   // Unclamped: a negative net is a credit balance that carries forward
   // instead of silently evaporating.
   const owedNet = (memberId) =>
-    owedGross(memberId) + (finesDue[memberId] || 0) - (creditsByMember[memberId] || 0)
+    owedGross(memberId) + (finesDue[memberId] || 0) + lateFineTotal(memberId) - (creditsByMember[memberId] || 0)
   const totalOwed = roster.reduce((n, m) => n + Math.max(0, owedNet(m.id)), 0)
 
   return (
@@ -315,6 +352,7 @@ function DuesAdmin() {
                     </th>
                   ))}
                   <th className="text-center text-[11px] uppercase tracking-wide text-faint font-medium pb-2 px-2">Fines</th>
+                  <th className="text-center text-[11px] uppercase tracking-wide text-faint font-medium pb-2 px-2" title="Late-payment fines">Late</th>
                   <th className="text-right text-[11px] uppercase tracking-wide text-faint font-medium pb-2 pl-4">Owed</th>
                 </tr>
               </thead>
@@ -331,6 +369,7 @@ function DuesAdmin() {
                       </td>
                       {categories.map((c) => {
                         const st = cellState(m.id, c)
+                        const lf = lateFineFor(m.id, c)
                         const label = {
                           'auto-paid': ['✓', 'bg-good-soft text-good', 'Paid (from Zeffy)'],
                           paid: ['✓', 'bg-special-soft text-special', 'Paid (manual override)'],
@@ -341,11 +380,12 @@ function DuesAdmin() {
                           <td key={catId(c)} className="text-center px-2 py-1.5 border-t border-line">
                             <button
                               disabled={!canEdit}
-                              title={label[2]}
+                              title={lf > 0 ? `Paid late — ${cents(lf)} late fine` : label[2]}
                               onClick={() => cycleCell(m.id, c)}
-                              className={`w-7 h-7 rounded-lg text-xs font-bold ${label[1]} ${canEdit ? 'cursor-pointer hover:ring-2 hover:ring-line-strong' : ''}`}
+                              className={`relative w-7 h-7 rounded-lg text-xs font-bold ${label[1]} ${canEdit ? 'cursor-pointer hover:ring-2 hover:ring-line-strong' : ''}`}
                             >
                               {label[0]}
+                              {lf > 0 && <span className="absolute -top-1 -right-1 text-[9px]">⏱</span>}
                             </button>
                           </td>
                         )
@@ -355,9 +395,16 @@ function DuesAdmin() {
                           ? <span className="text-xs font-semibold text-warn" title="Outstanding attendance fines (fined minus payments)">{cents(finesDue[m.id])}</span>
                           : <span className="text-faint text-xs">—</span>}
                       </td>
+                      <td className="text-center px-2 py-1.5 border-t border-line whitespace-nowrap">
+                        {lateFineTotal(m.id)
+                          ? <span className="text-xs font-semibold text-warn" title="Late-payment fines">{cents(lateFineTotal(m.id))}</span>
+                          : memberById[m.id]?.paymentPlan
+                            ? <Badge className="bg-info-soft text-info" title="On a payment plan — exempt from late fines">plan</Badge>
+                            : <span className="text-faint text-xs">—</span>}
+                      </td>
                       <td
                         className={`text-right pl-4 py-1.5 font-semibold border-t border-line whitespace-nowrap ${net > 0 ? 'text-bad' : 'text-good'}`}
-                        title={`${cents(gross)} dues${finesDue[m.id] ? ` + ${cents(finesDue[m.id])} fines` : ''}${credit ? ` − ${cents(credit)} credits` : ''}${net < 0 ? ' — credit carries forward' : ''}`}
+                        title={`${cents(gross)} dues${finesDue[m.id] ? ` + ${cents(finesDue[m.id])} attendance fines` : ''}${lateFineTotal(m.id) ? ` + ${cents(lateFineTotal(m.id))} late fines` : ''}${credit ? ` − ${cents(credit)} credits` : ''}${net < 0 ? ' — credit carries forward' : ''}`}
                       >
                         {net > 0 ? cents(net) : net < 0 ? `+${cents(-net)} credit` : '✓'}
                         {credit > 0 && net >= 0 && (
@@ -375,9 +422,85 @@ function DuesAdmin() {
         </Card>
       )}
 
+      {tab === 'grid' && canEdit && (
+        <LateFinesReview
+          categories={categories}
+          roster={roster}
+          lateFineFor={lateFineFor}
+        />
+      )}
+
       {setupOpen && <CategoriesModal payments={succeeded} onClose={() => setSetupOpen(false)} />}
       {campaignsOpen && <CampaignsModal campaigns={campaigns} onClose={() => setCampaignsOpen(false)} />}
     </div>
+  )
+}
+
+// Every applied late-payment fine, with per-fine waive and per-fee bulk revoke.
+function LateFinesReview({ categories, roster, lateFineFor }) {
+  const { state, setDues } = useStore()
+  const waivers = state.dues.lateFineWaivers || {}
+
+  const rows = []
+  for (const m of roster) {
+    for (const c of categories) {
+      const amt = lateFineFor(m.id, c)
+      if (amt > 0) rows.push({ member: m, cat: c, amt })
+    }
+  }
+  const finedCats = categories.filter((c) => c.rateId && c.dueDate)
+
+  const waive = (memberId, cat) => {
+    const next = { ...waivers, [memberId]: { ...(waivers[memberId] || {}), [catId(cat)]: true } }
+    setDues({ lateFineWaivers: next })
+  }
+  const toggleFeeFines = (cat, active) => {
+    setDues({ categories: state.dues.categories.map((c) => (catId(c) === catId(cat) ? { ...c, lateFinesActive: active } : c)) })
+  }
+
+  const total = rows.reduce((n, r) => n + r.amt, 0)
+
+  return (
+    <Card className="mb-5">
+      <CardHeader
+        title={`Late-payment fines${total ? ` · ${cents(total)}` : ''}`}
+        subtitle="Fines from fees paid after their due date. Waive one, or turn a whole fee's late fines off for everyone."
+      />
+      <div className="px-5 pb-5">
+        {finedCats.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {finedCats.map((c) => (
+              <button
+                key={catId(c)}
+                onClick={() => toggleFeeFines(c, c.lateFinesActive === false)}
+                className={`text-xs px-2.5 py-1 rounded-full border cursor-pointer transition-colors ${
+                  c.lateFinesActive === false
+                    ? 'bg-subtle text-faint border-line line-through'
+                    : 'bg-warn-soft text-warn border-warn/25'
+                }`}
+                title={c.lateFinesActive === false ? 'Late fines OFF for this fee — click to re-enable' : 'Late fines ON — click to waive for everyone'}
+              >
+                {c.name} · late fines {c.lateFinesActive === false ? 'off' : 'on'}
+              </button>
+            ))}
+          </div>
+        )}
+        {rows.length === 0 ? (
+          <p className="text-sm text-faint italic">No late-payment fines right now.</p>
+        ) : (
+          <ul className="divide-y divide-line">
+            {rows.map((r) => (
+              <li key={r.member.id + catId(r.cat)} className="py-2 flex items-center gap-3 text-sm flex-wrap">
+                <span className="font-medium text-ink">{r.member.name}</span>
+                <span className="text-xs text-muted">{r.cat.name} · paid late</span>
+                <Badge className="bg-warn-soft text-warn">{cents(r.amt)}</Badge>
+                <Button size="sm" variant="ghost" className="ml-auto" onClick={() => waive(r.member.id, r.cat)}>Waive</Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Card>
   )
 }
 
@@ -665,7 +788,10 @@ function DonationsCard({ donations }) {
 
 // Define fee categories: Zeffy rates discovered from payments + manual ones.
 function CategoriesModal({ payments, onClose }) {
-  const { state, setDues } = useStore()
+  const { state, setDues, setSettings } = useStore()
+  const [defaults, setDefaults] = useState(
+    state.settings?.dueFineDefaults ?? { lateCents: 500, veryLateCents: 1000, veryLateAfterDays: 7 },
+  )
 
   const discovered = useMemo(() => {
     const map = new Map()
@@ -696,6 +822,11 @@ function CategoriesModal({ payments, onClose }) {
       include: !!existing[d.rateId],
       name: existing[d.rateId]?.name ?? '',
       amountCents: existing[d.rateId]?.amountCents ?? d.typicalAmount,
+      dueDate: existing[d.rateId]?.dueDate ?? '',
+      lateCents: existing[d.rateId]?.lateCents ?? null,
+      veryLateCents: existing[d.rateId]?.veryLateCents ?? null,
+      veryLateAfterDays: existing[d.rateId]?.veryLateAfterDays ?? null,
+      lateFinesActive: existing[d.rateId]?.lateFinesActive ?? true,
       count: d.count,
       typicalAmount: d.typicalAmount,
       campaigns: d.campaigns,
@@ -732,8 +863,15 @@ function CategoriesModal({ payments, onClose }) {
   const save = () => {
     const categories = rows
       .filter((r) => r.include && r.name.trim())
-      .map((r, i) => ({ id: r.id, rateId: r.rateId, name: r.name.trim(), amountCents: r.amountCents, order: i }))
+      .map((r, i) => ({
+        id: r.id, rateId: r.rateId, name: r.name.trim(), amountCents: r.amountCents, order: i,
+        dueDate: r.dueDate || null,
+        lateCents: r.lateCents, veryLateCents: r.veryLateCents,
+        veryLateAfterDays: r.veryLateAfterDays,
+        lateFinesActive: r.lateFinesActive !== false,
+      }))
     setDues({ categories })
+    setSettings({ dueFineDefaults: defaults })
     onClose()
   }
 
@@ -742,36 +880,75 @@ function CategoriesModal({ payments, onClose }) {
   return (
     <Modal title="Fee categories" onClose={onClose} wide>
       <p className="text-xs text-muted mb-3">
-        Zeffy rates found in your payments are listed first — tick the required fees, name them
-        like your sheet columns, confirm the amount. Add manual categories (✍) for cash/Venmo
-        fees; those are checked off by hand in the grid. New fees created in Zeffy appear here
-        after the next sync — Zeffy's API is read-only, so fees can't be created from this side.
+        Tick required fees, name them, confirm the amount. Add a <b>due date</b> to fine late
+        payers — by default {cents(defaults.lateCents)} after the due date, {cents(defaults.veryLateCents)} once
+        it's {defaults.veryLateAfterDays}+ days late (set from the Zeffy payment date). Add manual
+        categories (✍) for cash/Venmo; new Zeffy fees show up after a sync.
       </p>
+      <div className="flex items-center gap-2 flex-wrap mb-3 text-xs text-muted bg-subtle rounded-xl px-3 py-2">
+        <span className="font-medium">Default late fine:</span>
+        <span>$</span>
+        <input type="number" min="0" step="0.5" className="w-16 px-2 py-1 bg-surface border border-line-strong rounded-lg"
+          value={defaults.lateCents / 100} onChange={(e) => setDefaults({ ...defaults, lateCents: Math.round(Number(e.target.value) * 100) })} />
+        <span>after due, $</span>
+        <input type="number" min="0" step="0.5" className="w-16 px-2 py-1 bg-surface border border-line-strong rounded-lg"
+          value={defaults.veryLateCents / 100} onChange={(e) => setDefaults({ ...defaults, veryLateCents: Math.round(Number(e.target.value) * 100) })} />
+        <span>after</span>
+        <input type="number" min="1" className="w-14 px-2 py-1 bg-surface border border-line-strong rounded-lg"
+          value={defaults.veryLateAfterDays} onChange={(e) => setDefaults({ ...defaults, veryLateAfterDays: Number(e.target.value) || 7 })} />
+        <span>days</span>
+      </div>
       <div className="space-y-1.5 max-h-96 overflow-y-auto thin-scroll">
         {rows.map((r, i) => (
-          <div key={r.id} className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${r.include ? 'border-line-strong bg-surface' : 'border-line bg-subtle opacity-70'}`}>
-            <input type="checkbox" checked={r.include} onChange={(e) => update(i, { include: e.target.checked })} />
-            <input
-              className={`${inputCls} !w-40 !py-1.5`}
-              placeholder={r.rateId ? 'Name (e.g. NN Hotels)' : 'Manual fee name'}
-              value={r.name}
-              onChange={(e) => update(i, { name: e.target.value })}
-            />
-            <span className="text-xs text-faint">$</span>
-            <input
-              type="number" step="0.01" min="0"
-              className={`${inputCls} !w-24 !py-1.5`}
-              value={r.amountCents / 100}
-              onChange={(e) => update(i, { amountCents: Math.round(Number(e.target.value) * 100) })}
-            />
-            <span className="text-[11px] text-faint ml-auto text-right">
-              {r.rateId
-                ? <>
-                    {r.count} paid · typ. {cents(r.typicalAmount)}
-                    {r.campaigns && <span className="block truncate max-w-48" title={r.campaigns}>{r.campaigns}</span>}
+          <div key={r.id} className={`rounded-xl border px-3 py-2 ${r.include ? 'border-line-strong bg-surface' : 'border-line bg-subtle opacity-70'}`}>
+            <div className="flex items-center gap-2">
+              <input type="checkbox" checked={r.include} onChange={(e) => update(i, { include: e.target.checked })} />
+              <input
+                className={`${inputCls} !w-40 !py-1.5`}
+                placeholder={r.rateId ? 'Name (e.g. NN Hotels)' : 'Manual fee name'}
+                value={r.name}
+                onChange={(e) => update(i, { name: e.target.value })}
+              />
+              <span className="text-xs text-faint">$</span>
+              <input
+                type="number" step="0.01" min="0"
+                className={`${inputCls} !w-24 !py-1.5`}
+                value={r.amountCents / 100}
+                onChange={(e) => update(i, { amountCents: Math.round(Number(e.target.value) * 100) })}
+              />
+              <span className="text-[11px] text-faint ml-auto text-right">
+                {r.rateId
+                  ? <>{r.count} paid · typ. {cents(r.typicalAmount)}</>
+                  : <Badge className="bg-subtle text-muted">manual ✍</Badge>}
+              </span>
+            </div>
+            {r.include && r.rateId && (
+              <div className="flex items-center gap-2 flex-wrap mt-2 pl-6 text-[11px] text-muted">
+                <span>Due date (for late fines):</span>
+                <input type="date" className="px-2 py-1 bg-surface border border-line-strong rounded-lg text-xs"
+                  value={r.dueDate} onChange={(e) => update(i, { dueDate: e.target.value })} />
+                {r.dueDate && (
+                  <>
+                    <span className="ml-1">override $</span>
+                    <input type="number" min="0" step="0.5" placeholder={String(defaults.lateCents / 100)}
+                      className="w-14 px-2 py-1 bg-surface border border-line-strong rounded-lg"
+                      value={r.lateCents == null ? '' : r.lateCents / 100}
+                      onChange={(e) => update(i, { lateCents: e.target.value === '' ? null : Math.round(Number(e.target.value) * 100) })} />
+                    <span>/ $</span>
+                    <input type="number" min="0" step="0.5" placeholder={String(defaults.veryLateCents / 100)}
+                      className="w-14 px-2 py-1 bg-surface border border-line-strong rounded-lg"
+                      value={r.veryLateCents == null ? '' : r.veryLateCents / 100}
+                      onChange={(e) => update(i, { veryLateCents: e.target.value === '' ? null : Math.round(Number(e.target.value) * 100) })} />
+                    <span>after</span>
+                    <input type="number" min="1" placeholder={String(defaults.veryLateAfterDays)}
+                      className="w-12 px-2 py-1 bg-surface border border-line-strong rounded-lg"
+                      value={r.veryLateAfterDays == null ? '' : r.veryLateAfterDays}
+                      onChange={(e) => update(i, { veryLateAfterDays: e.target.value === '' ? null : Number(e.target.value) })} />
+                    <span>d</span>
                   </>
-                : <Badge className="bg-subtle text-muted">manual ✍</Badge>}
-            </span>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -795,6 +972,8 @@ function CategoriesModal({ payments, onClose }) {
 // Data arrives pre-filtered: the RPC returns only this member's slice of the
 // dues doc, and RLS returns only their own payment rows.
 function MyDues() {
+  const { state } = useStore()
+  const { memberId } = useAuth()
   const [info, setInfo] = useState(null) // get_my_dues result
   const [rows, setRows] = useState([])   // my zeffy payments
   const [reimbs, setReimbs] = useState([])
@@ -844,7 +1023,19 @@ function MyDues() {
   const paidRateIds = new Set(
     mine.flatMap((p) => (p.items ?? []).filter((i) => i.rate_id).map((i) => i.rate_id)),
   )
+  // Earliest date I paid each rate, for my own late-fine math.
+  const paidRateDate = {}
+  for (const p of mine) {
+    const date = p.created?.slice(0, 10)
+    for (const i of p.items ?? []) {
+      if (!i.rate_id) continue
+      if (!paidRateDate[i.rate_id] || date < paidRateDate[i.rate_id]) paidRateDate[i.rate_id] = date
+    }
+  }
   const overrides = info.overrides || {}
+  const myWaivers = info.late_fine_waivers || {}
+  const onPlan = state.roster.find((m) => m.id === memberId)?.paymentPlan
+  const fineDefaults = state.settings?.dueFineDefaults ?? { lateCents: 500, veryLateCents: 1000, veryLateAfterDays: 7 }
   const cats = [...(info.categories ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 
   const stateOf = (c) => {
@@ -852,6 +1043,18 @@ function MyDues() {
     if (ov) return ov
     return c.rateId && paidRateIds.has(c.rateId) ? 'auto-paid' : 'unpaid'
   }
+
+  const myLateFine = (c) => {
+    const key = c.id ?? c.rateId
+    if (!c.rateId || !c.dueDate || c.lateFinesActive === false || onPlan || myWaivers[key]) return 0
+    const paid = paidRateDate[c.rateId]
+    if (!paid || paid <= c.dueDate) return 0
+    const daysLate = Math.round((new Date(paid) - new Date(c.dueDate)) / 86400000)
+    return daysLate >= (c.veryLateAfterDays ?? fineDefaults.veryLateAfterDays)
+      ? (c.veryLateCents ?? fineDefaults.veryLateCents)
+      : (c.lateCents ?? fineDefaults.lateCents)
+  }
+  const lateFinesTotal = cats.reduce((n, c) => n + myLateFine(c), 0)
 
   const donationCreditIds = new Set(info.donation_credit_ids ?? [])
   const donationCredit = mine
@@ -863,7 +1066,7 @@ function MyDues() {
 
   const gross = cats.reduce((n, c) => (stateOf(c) === 'unpaid' ? n + c.amountCents : n), 0)
   const credit = donationCredit + reimbCredit
-  const net = gross + finesDue - credit // negative = credit carried forward
+  const net = gross + finesDue + lateFinesTotal - credit // negative = credit carried forward
 
   return (
     <div>
@@ -885,10 +1088,11 @@ function MyDues() {
               <div className="text-[11px] text-faint">carries forward against future fees</div>
             )}
           </div>
-          {(credit > 0 || finesDue > 0) && (
+          {(credit > 0 || finesDue > 0 || lateFinesTotal > 0) && (
             <div className="text-xs text-muted">
               {cents(gross)} in unpaid fees
               {finesDue > 0 && <span className="block text-warn">+ {cents(finesDue)} attendance fines</span>}
+              {lateFinesTotal > 0 && <span className="block text-warn">+ {cents(lateFinesTotal)} late-payment fines</span>}
               {donationCredit > 0 && <span className="block">− {cents(donationCredit)} donation credit</span>}
               {reimbCredit > 0 && <span className="block">− {cents(reimbCredit)} reimbursement credit</span>}
             </div>

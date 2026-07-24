@@ -6,7 +6,7 @@ import { isActive } from '../matching.js'
 import { Button, Card, CardHeader, TextInput, EmptyState, Badge, Select } from './ui.jsx'
 
 export default function Roster() {
-  const { state, addMember, renameMember, removeMember, setMemberActive } = useStore()
+  const { state, addMember, renameMember, removeMember, setMemberActive, setMemberPaymentPlan } = useStore()
   const { canEdit } = useAuth()
   const [name, setName] = useState('')
   const [editing, setEditing] = useState(null) // member id
@@ -80,11 +80,20 @@ export default function Roster() {
                       <span className="flex-1 text-sm font-medium text-ink">{m.name}</span>
                     )}
                     {!isActive(m) && <Badge className="bg-warn-soft text-warn">inactive</Badge>}
+                    {m.paymentPlan && <Badge className="bg-info-soft text-info" title="Exempt from late-payment fines">payment plan</Badge>}
                     {segCount[m.id] ? (
                       <Badge className="bg-subtle text-muted">{segCount[m.id]} segment{segCount[m.id] > 1 ? 's' : ''}</Badge>
                     ) : null}
                     {canEdit && (
                       <>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setMemberPaymentPlan(m.id, !m.paymentPlan)}
+                          title={m.paymentPlan ? 'Remove payment-plan exemption' : 'On a payment plan — exempt from late-payment fines'}
+                        >
+                          {m.paymentPlan ? 'End plan' : 'Payment plan'}
+                        </Button>
                         <Button
                           size="sm"
                           variant="ghost"

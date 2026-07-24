@@ -26,11 +26,15 @@ const DEFAULT_STATE = {
     weeks: {},
   },
   dues: {
-    categories: [], // {rateId, name, amountCents, order}
+    // category: {id, rateId, name, amountCents, order,
+    //   dueDate?, lateCents?, veryLateCents?, veryLateAfterDays?, lateFinesActive?}
+    categories: [],
     // per-member manual cell states: { [memberId]: { [rateId]: 'paid' | 'exempt' } }
     overrides: {},
     // zeffy buyer (email or "first last", lowercased) -> roster member id
     contactLinks: {},
+    // per-member, per-category late-fine forgiveness: { [memberId]: { [catId]: true } }
+    lateFineWaivers: {},
   },
   settings: {
     // Is the left of the forms-PDF page the performers' stage left?
@@ -50,6 +54,8 @@ const DEFAULT_STATE = {
     excuseWindowHours: 5,
     // Slack channel id for attendance announcements (bot must be in it).
     slackAttendanceChannel: '',
+    // Default late-payment fine rule, overridable per fee category.
+    dueFineDefaults: { lateCents: 500, veryLateCents: 1000, veryLateAfterDays: 7 },
   },
 }
 
@@ -169,6 +175,13 @@ export function StoreProvider({ children }) {
         set((s) => ({
           ...s,
           roster: s.roster.map((m) => (m.id === id ? { ...m, active } : m)),
+        }))
+      },
+      // On a payment plan → blanket exemption from all late-payment fines.
+      setMemberPaymentPlan(id, paymentPlan) {
+        set((s) => ({
+          ...s,
+          roster: s.roster.map((m) => (m.id === id ? { ...m, paymentPlan } : m)),
         }))
       },
       renameMember(id, name) {

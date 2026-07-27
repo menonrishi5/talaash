@@ -36,6 +36,24 @@ export default function Login() {
     }
   }
 
+  const forgot = async () => {
+    if (!email) {
+      setMsg({ kind: 'error', text: 'Enter your email above first, then tap "Forgot password".' })
+      return
+    }
+    setBusy(true)
+    setMsg(null)
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + window.location.pathname,
+    })
+    setBusy(false)
+    setMsg(
+      error
+        ? { kind: 'error', text: error.message }
+        : { kind: 'info', text: 'Check your email for a link to set a new password.' },
+    )
+  }
+
   const inputCls =
     'w-full px-3 py-2.5 text-sm bg-surface border border-line-strong rounded-xl focus:outline-none focus:ring-2 focus:ring-accent/30 placeholder:text-faint'
 
@@ -84,6 +102,17 @@ export default function Login() {
           >
             {busy ? 'One sec…' : mode === 'signin' ? 'Sign in' : 'Sign up'}
           </button>
+
+          {mode === 'signin' && (
+            <button
+              type="button"
+              onClick={forgot}
+              disabled={busy}
+              className="w-full text-center text-xs text-muted hover:text-ink mt-3 cursor-pointer disabled:opacity-40"
+            >
+              Forgot password?
+            </button>
+          )}
 
           <p className="text-xs text-muted text-center mt-4">
             {mode === 'signin' ? (

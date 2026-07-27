@@ -9,10 +9,15 @@ const AuthCtx = createContext(null)
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined) // undefined = still loading
   const [profile, setProfile] = useState(null)
+  // True after a password-reset link is opened, until they set a new password.
+  const [recovery, setRecovery] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null))
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s))
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') setRecovery(true)
+      setSession(s)
+    })
     return () => sub.subscription.unsubscribe()
   }, [])
 
@@ -42,6 +47,8 @@ export function AuthProvider({ children }) {
     role: profile?.role ?? 'viewer',
     canEdit: profile?.role === 'editor',
     memberId: profile?.member_id ?? null, // linked roster member, set in App access
+    recovery,
+    endRecovery: () => setRecovery(false),
     signOut: () => supabase.auth.signOut(),
   }
 

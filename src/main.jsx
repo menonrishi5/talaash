@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import CheckIn from './components/CheckIn.jsx'
 import Login from './components/Login.jsx'
+import ResetPassword from './components/ResetPassword.jsx'
 import { StoreProvider } from './store.jsx'
 import { AuthProvider, useAuth } from './auth.jsx'
 import { ThemeProvider } from './theme.jsx'
@@ -14,7 +15,10 @@ const isCheckIn = () => window.location.hash.startsWith('#/checkin')
 window.addEventListener('hashchange', () => window.location.reload())
 
 function Root() {
-  const { loading, session } = useAuth()
+  const { loading, session, recovery } = useAuth()
+  // A password-reset link wins over everything — even though it creates a
+  // temporary session, show the "set new password" screen, not the app.
+  if (recovery) return <ResetPassword />
   if (loading) {
     return (
       <div className="min-h-full flex items-center justify-center text-sm text-faint">

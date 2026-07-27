@@ -120,7 +120,7 @@ Deno.serve(async (_req) => {
     for (const r of responses ?? []) respByOcc[`${r.week_iso}:${r.slot_id}`] = r;
 
     const now = new Date();
-    const appUrl = "https://menonrishi5.github.io/talaash/";
+    const appUrl = "https://talaash-five.vercel.app/";
     const loc = benching.activeLocation ? ` at ${benching.activeLocation}` : "";
     const toSend: { memberId: string; occ: string; kind: string; text: string }[] = [];
 

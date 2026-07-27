@@ -9,7 +9,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const TZ = "America/Chicago";
-const APP_URL = "https://menonrishi5.github.io/talaash/";
+const APP_URL = "https://talaash-five.vercel.app/";
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 const minLabel = (min: number) => {

@@ -4,6 +4,7 @@ import { useAuth } from '../auth.jsx'
 import { supabase } from '../supabase.js'
 import { uid } from '../lib.js'
 import { putReceipt, receiptURL } from '../fileStore.js'
+import { memberOwedCents } from '../duesMath.js'
 import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, inputCls } from './ui.jsx'
 
 const cents = (c) => `$${(c / 100) % 1 ? (c / 100).toFixed(2) : c / 100}`
@@ -33,6 +34,7 @@ export default function Reimbursements() {
   const { canEdit, memberId, session } = useAuth()
   const { state } = useStore()
   const [rows, setRows] = useState(null)
+  const [bal, setBal] = useState(null) // inputs for the outstanding-balance calc
   const [decide, setDecide] = useState(null) // row being approved/denied
   const [edit, setEdit] = useState(null) // row being edited (editor)
 
@@ -43,10 +45,26 @@ export default function Reimbursements() {
       .select('*')
       .order('created_at', { ascending: false })
     if (data) setRows(data)
+    // Editors also load what's needed to know each member's outstanding dues,
+    // so approving can auto-offset it.
+    if (canEdit) {
+      const [{ data: zp }, { data: ci }, { data: fp }] = await Promise.all([
+        supabase.from('zeffy_payments').select('*'),
+        supabase.from('checkins').select('member_id,fine,fine_pending'),
+        supabase.from('payments').select('member_id,amount'),
+      ])
+      setBal({ zeffyPayments: zp ?? [], checkins: ci ?? [], finePayments: fp ?? [], reimbursements: data ?? [] })
+    }
   }
   useEffect(() => {
     load()
   }, [])
+
+  // A member's current outstanding, used to default the dues credit.
+  const owedFor = (r) => {
+    if (!bal || !r.member_id) return 0
+    return memberOwedCents(r.member_id, { dues: state.dues, roster: state.roster, settings: state.settings, ...bal }, r.id)
+  }
 
   const memberName = (id) => state.roster.find((m) => m.id === id)?.name
 
@@ -141,7 +159,7 @@ export default function Reimbursements() {
         </>
       )}
 
-      {decide && <DecideModal r={decide} memberName={memberName} onClose={() => { setDecide(null); load() }} />}
+      {decide && <DecideModal r={decide} owed={owedFor(decide)} memberName={memberName} onClose={() => { setDecide(null); load() }} />}
       {edit && <EditModal r={edit} memberName={memberName} onClose={() => { setEdit(null); load() }} />}
     </div>
   )
@@ -345,10 +363,15 @@ function SubmitCard({ onSubmitted }) {
 }
 
 // Editor approval: split the approved amount into dues credit + cash payout.
-function DecideModal({ r, memberName, onClose }) {
-  // Re-review pre-fills from the prior decision; first review from the request.
-  const [approved, setApproved] = useState(((r.approved_amount_cents ?? r.amount_cents) / 100).toFixed(2))
-  const [credit, setCredit] = useState(((r.dues_credit_cents ?? 0) / 100).toFixed(2))
+function DecideModal({ r, owed = 0, memberName, onClose }) {
+  const approvedDefault = r.approved_amount_cents ?? r.amount_cents
+  // Offset dues first: on a fresh review, credit up to what they owe; on
+  // re-review, keep the prior split.
+  const creditDefault = r.dues_credit_cents != null
+    ? r.dues_credit_cents
+    : Math.max(0, Math.min(owed, approvedDefault))
+  const [approved, setApproved] = useState((approvedDefault / 100).toFixed(2))
+  const [credit, setCredit] = useState((creditDefault / 100).toFixed(2))
   const [note, setNote] = useState(r.decision_note ?? '')
   const [busy, setBusy] = useState(false)
 
@@ -383,9 +406,11 @@ function DecideModal({ r, memberName, onClose }) {
         </Field>
       </div>
       <p className="text-xs text-muted mb-3">
-        {creditC > 0 && <>{cents(creditC)} comes off what they owe. </>}
-        {payout > 0 ? <>{cents(payout)} to pay back in cash/Venmo (mark it paid later).</> : 'Nothing to pay out.'}
-        {' '}Check their outstanding on the Dues grid to pick the split.
+        {r.member_id
+          ? <>They currently owe <span className="font-medium text-ink">{cents(Math.max(0, owed))}</span>. </>
+          : <>⚠ Not linked to a member — a credit won't reduce anyone's dues. Set the member via Edit first. </>}
+        {creditC > 0 && <>{cents(creditC)} comes off that. </>}
+        {payout > 0 ? <>{cents(payout)} paid back in cash/Venmo (mark it paid later).</> : 'Nothing to pay out.'}
       </p>
       <Field label="Note (optional)">
         <TextInput value={note} onChange={(e) => setNote(e.target.value)} placeholder="visible to the member" />

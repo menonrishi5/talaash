@@ -6,6 +6,10 @@ import { supabase } from './supabase.js'
 
 const AuthCtx = createContext(null)
 
+// The owner (Rishi) is the only one who can grant/revoke admin access.
+// Enforced in the database too (migration-16); this just gates the UI.
+const OWNER_EMAILS = ['menonrishi5@gmail.com', 'rishimenon@utexas.edu']
+
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined) // undefined = still loading
   const [profile, setProfile] = useState(null)
@@ -47,6 +51,7 @@ export function AuthProvider({ children }) {
     role: profile?.role ?? 'viewer',
     canEdit: profile?.role === 'editor',
     memberId: profile?.member_id ?? null, // linked roster member, set in App access
+    isOwner: OWNER_EMAILS.includes((session?.user?.email ?? '').toLowerCase()),
     recovery,
     endRecovery: () => setRecovery(false),
     signOut: () => supabase.auth.signOut(),

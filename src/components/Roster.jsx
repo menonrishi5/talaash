@@ -150,7 +150,7 @@ export default function Roster() {
 // App accounts and their roles. Editors can promote/demote; role changes are
 // enforced by the database, this UI just edits the profiles table.
 function TeamAccess() {
-  const { canEdit, session } = useAuth()
+  const { canEdit, session, isOwner } = useAuth()
   const { state } = useStore()
   const [profiles, setProfiles] = useState(null)
   const [error, setError] = useState(null)
@@ -178,7 +178,11 @@ function TeamAccess() {
     <Card>
       <CardHeader
         title="App access"
-        subtitle="Accounts, their role, and which roster member each account IS. The member link powers own-only dues, benching accept/decline, and Slack notifications."
+        subtitle={
+          isOwner
+            ? 'Accounts, their role, and which member each is. As the owner, you’re the only one who can grant or revoke admin (editor) access.'
+            : 'Accounts, their role, and which member each is. Admin (editor) access is granted by the owner only.'
+        }
       />
       <div className="px-5 pb-5">
         {error && <p className="text-sm text-bad mb-2">{error}</p>}
@@ -229,11 +233,13 @@ function TeamAccess() {
                     />
                   )}
                   <div className="w-24 shrink-0 flex justify-end">
-                    {canEdit && p.id !== session?.user?.id ? (
+                    {/* Only the owner can grant/revoke admin access. */}
+                    {isOwner && p.id !== session?.user?.id ? (
                       <Select
                         className="!w-full !py-1 !text-xs"
                         value={p.role}
                         onChange={(e) => update(p.id, { role: e.target.value })}
+                        title="Grant or revoke admin (editor) access"
                       >
                         <option value="viewer">viewer</option>
                         <option value="editor">editor</option>

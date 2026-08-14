@@ -8,7 +8,7 @@ import {
   segColor, minToLabel, durationLabel, DAY_NAMES, toISODate,
 } from '../lib.js'
 import { Button, Card, CardHeader, Modal, Field, Select, Badge, EmptyState } from './ui.jsx'
-import { MyAvailability, ConflictCheck, conflictsForBlock } from './Availability.jsx'
+import { MyAvailability, ConflictCheck, AutoSchedule, conflictsForBlock } from './Availability.jsx'
 import { isActive } from '../matching.js'
 
 function timeOptions(step = 15) {
@@ -101,6 +101,7 @@ export default function PracticeCalendar() {
       {/* Members set their availability; editors check it against a segment's cast. */}
       <MyAvailability />
       {canEdit && <ConflictCheck />}
+      {canEdit && <AutoSchedule />}
 
       <Card className="mb-5">
         {state.segments.length === 0 ? (

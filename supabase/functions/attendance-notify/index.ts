@@ -84,7 +84,8 @@ Deno.serve(async (req) => {
         `🕺 *Practice ${fmtDate(iso)}${sm != null ? ` · ${minLabel(sm)}` : ""}*` +
         `${location ? ` · 📍 ${location}` : ""}\n` +
         `Check in when you arrive. Can't make it or running late? Fill out the excuse form ` +
-        `by *${deadline}*: ${APP_URL}`;
+        `by *${deadline}*.\n` +
+        `📆 Have a conflict after 7? Update your availability so we can schedule around it: ${APP_URL}`;
       const r = await slack("chat.postMessage", { channel, text });
       return json({ ok: r.ok, error: r.error ?? null });
     }
@@ -133,7 +134,7 @@ Deno.serve(async (req) => {
         const r = await slack("chat.postMessage", {
           channel,
           text: `⏰ *Heads up* — the excuse window for ${fmtDate(iso)}'s practice closes in about an hour. ` +
-            `If you can't make it or will be late, submit now: ${APP_URL}`,
+            `If you can't make it, will be late, or have an after-7 conflict, update it now: ${APP_URL}`,
         });
         await logOnce(supabase, iso, "attn-reminder", r.ok ? "sent" : `slack: ${r.error}`);
         results.push(`reminder ${iso}: ${r.ok}`);

@@ -7,6 +7,7 @@ import {
   segColor, minToLabel, durationLabel, DAY_NAMES, toISODate,
 } from '../lib.js'
 import { Button, Card, CardHeader, Modal, Field, Select, Badge, EmptyState } from './ui.jsx'
+import { MyAvailability, ConflictCheck } from './Availability.jsx'
 
 function timeOptions(step = 15) {
   const opts = []
@@ -71,6 +72,10 @@ export default function PracticeCalendar() {
           <span className="text-sm font-semibold text-ink ml-2 w-36 text-right">{fmtWeekRange(weekISO)}</span>
         </div>
       </div>
+
+      {/* Members set their availability; editors check it against a segment's cast. */}
+      <MyAvailability />
+      {canEdit && <ConflictCheck />}
 
       <Card className="mb-5">
         {state.segments.length === 0 ? (

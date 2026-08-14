@@ -160,8 +160,19 @@ export default function WeekGrid({ weekISO, events, onDragCreate }) {
                       borderColor: ev.dashed ? ev.color : undefined,
                       color: ev.dashed ? ev.color : undefined,
                     }}
-                    title={`${ev.title} · ${minToLabel(ev.startMin)} – ${minToLabel(ev.endMin)}${ev.subtitle ? `\n${ev.subtitle}` : ''}`}
+                    title={ev.tooltip
+                      ? `${ev.title} · ${minToLabel(ev.startMin)} – ${minToLabel(ev.endMin)}\n${ev.tooltip}`
+                      : `${ev.title} · ${minToLabel(ev.startMin)} – ${minToLabel(ev.endMin)}${ev.subtitle ? `\n${ev.subtitle}` : ''}`}
                   >
+                    {ev.warn && (
+                      <span
+                        className="absolute top-0.5 right-0.5 text-[10px] leading-none"
+                        style={{ filter: 'drop-shadow(0 0 1px rgba(0,0,0,.5))' }}
+                      >⚠️</span>
+                    )}
+                    {ev.warn && !ev.dashed && (
+                      <span className="absolute inset-0 rounded-lg pointer-events-none" style={{ boxShadow: 'inset 0 0 0 2px var(--bad)' }} />
+                    )}
                     <div className="font-semibold truncate">{ev.title}</div>
                     {ev.subtitle && <div className="truncate opacity-90">{ev.subtitle}</div>}
                     <div className="opacity-75">{minToLabel(ev.startMin)} – {minToLabel(ev.endMin)}</div>

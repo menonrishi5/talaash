@@ -7,19 +7,45 @@ import { isActive } from '../matching.js'
 import { Button, Card, CardHeader, Select, Badge } from './ui.jsx'
 
 // Availability window: after 7 PM, in 30-min blocks up to 11 PM.
-const AVAIL_START = 19 * 60
-const N_BLOCKS = 8 // 7:00 → 11:00
-const blockLabel = (i) => minToLabel(AVAIL_START + i * 30)
-const weekdayOf = (iso) => (fromISODate(iso).getDay() + 6) % 7 // Mon=0
+export const AVAIL_START = 19 * 60
+export const N_BLOCKS = 8 // 7:00 → 11:00
+export const blockLabel = (i) => minToLabel(AVAIL_START + i * 30)
+export const weekdayOf = (iso) => (fromISODate(iso).getDay() + 6) % 7 // Mon=0
 
 // Resolve a member's busy blocks for a date: date override wins, then their
 // weekly default for that weekday, else fully free.
-function resolveBusy(byKey, memberId, dateISO) {
+export function resolveBusy(byKey, memberId, dateISO) {
   return (
     byKey[`${memberId}|d:${dateISO}`] ??
     byKey[`${memberId}|w:${weekdayOf(dateISO)}`] ??
     []
   )
+}
+
+// True if the member has entered any availability that applies to this date.
+export function hasAvailability(byKey, memberId, dateISO) {
+  return !!(byKey[`${memberId}|d:${dateISO}`] || byKey[`${memberId}|w:${weekdayOf(dateISO)}`])
+}
+
+// The 30-min availability block indices a scheduled time range overlaps,
+// clamped to the after-7 window.
+export function blocksForRange(startMin, endMin) {
+  const out = []
+  for (let i = 0; i < N_BLOCKS; i++) {
+    const bStart = AVAIL_START + i * 30
+    if (bStart + 30 > startMin && bStart < endMin) out.push(i)
+  }
+  return out
+}
+
+// Cast members who are busy during a scheduled block on a given date.
+export function conflictsForBlock(byKey, cast, dateISO, startMin, endMin) {
+  const idx = blocksForRange(startMin, endMin)
+  if (idx.length === 0) return []
+  return cast.filter((m) => {
+    const busy = resolveBusy(byKey, m.id, dateISO)
+    return idx.some((i) => busy.includes(i))
+  })
 }
 
 // A row of 8 tappable 30-min chips. Tapping marks that block busy.

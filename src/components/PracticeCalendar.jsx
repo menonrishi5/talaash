@@ -1,13 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
+import { supabase } from '../supabase.js'
 import WeekGrid, { START_HOUR, END_HOUR } from './WeekGrid.jsx'
 import {
   weekStartISO, addDaysISO, dayIndexOfISO, fmtWeekRange, fmtDate, relativeDays,
   segColor, minToLabel, durationLabel, DAY_NAMES, toISODate,
 } from '../lib.js'
 import { Button, Card, CardHeader, Modal, Field, Select, Badge, EmptyState } from './ui.jsx'
-import { MyAvailability, ConflictCheck } from './Availability.jsx'
+import { MyAvailability, ConflictCheck, conflictsForBlock } from './Availability.jsx'
+import { isActive } from '../matching.js'
 
 function timeOptions(step = 15) {
   const opts = []
@@ -21,11 +23,27 @@ export default function PracticeCalendar() {
   const { canEdit } = useAuth()
   const [weekISO, setWeekISO] = useState(weekStartISO())
   const [draft, setDraft] = useState(null) // {id?, day, startMin, endMin, segmentId}
+  const [avail, setAvail] = useState({}) // member_id|key -> busy[], for conflict overlay
+
+  useEffect(() => {
+    if (!canEdit) return
+    supabase.from('member_availability').select('*').then(({ data }) => {
+      const map = {}
+      for (const r of data ?? []) map[`${r.member_id}|${r.key}`] = r.busy
+      setAvail(map)
+    })
+  }, [canEdit])
 
   const segIndex = useMemo(
     () => Object.fromEntries(state.segments.map((s, i) => [s.id, i])),
     [state.segments],
   )
+
+  // Active cast of a segment, for conflict checks.
+  const castOf = (segId) =>
+    (state.segments.find((s) => s.id === segId)?.members ?? [])
+      .map((mm) => state.roster.find((r) => r.id === mm.memberId))
+      .filter((m) => m && isActive(m))
 
   const weekBlocks = state.practiceBlocks.filter((b) => {
     const d = dayIndexOfISO(b.date)
@@ -34,6 +52,10 @@ export default function PracticeCalendar() {
 
   const events = weekBlocks.map((b) => {
     const seg = state.segments.find((s) => s.id === b.segmentId)
+    // Who in this segment's cast is busy during this scheduled block.
+    const conflicts = canEdit && seg
+      ? conflictsForBlock(avail, castOf(b.segmentId), b.date, b.startMin, b.endMin)
+      : []
     return {
       id: b.id,
       day: dayIndexOfISO(b.date),
@@ -41,6 +63,9 @@ export default function PracticeCalendar() {
       endMin: b.endMin,
       color: seg ? segColor(segIndex[seg.id]) : '#a1a1aa',
       title: seg?.name ?? 'Deleted segment',
+      warn: conflicts.length > 0,
+      subtitle: conflicts.length > 0 ? `⚠ ${conflicts.length} can't make it` : undefined,
+      tooltip: conflicts.length > 0 ? `Conflicts: ${conflicts.map((m) => m.name).join(', ')}` : undefined,
       onClick: canEdit
         ? () => setDraft({ id: b.id, day: dayIndexOfISO(b.date), startMin: b.startMin, endMin: b.endMin, segmentId: b.segmentId })
         : undefined,

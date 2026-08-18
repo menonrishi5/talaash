@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import SetDesign from './components/SetDesign.jsx'
 import PracticeCalendar from './components/PracticeCalendar.jsx'
 import Benching from './components/Benching.jsx'
@@ -9,6 +9,9 @@ import Roster from './components/Roster.jsx'
 import { useStore } from './store.jsx'
 import { useAuth } from './auth.jsx'
 import { useTheme } from './theme.jsx'
+import { isDemo } from './demo/demoMode.js'
+import { onDemoTab, goToDemoTab } from './demo/demoNav.js'
+import DemoNarrator from './demo/DemoNarrator.jsx'
 
 const NAV = [
   {
@@ -123,6 +126,11 @@ export default function App() {
   const { session, role, signOut } = useAuth()
   const sync = SYNC_LABEL[syncStatus] ?? SYNC_LABEL.connecting
 
+  // In demo mode, keep tab state in sync with the narrator's guided tour
+  // (both directions, deduped in demoNav so there's no feedback loop).
+  useEffect(() => (isDemo() ? onDemoTab(setTab) : undefined), [])
+  useEffect(() => { if (isDemo()) goToDemoTab(tab) }, [tab])
+
   return (
     <div className="h-full flex">
       {/* Sidebar */}
@@ -211,6 +219,8 @@ export default function App() {
           {tab === 'roster' && <Roster />}
         </div>
       </main>
+
+      {isDemo() && <DemoNarrator />}
     </div>
   )
 }

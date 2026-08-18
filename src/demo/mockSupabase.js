@@ -18,25 +18,31 @@ const PK = {
 let _seq = 1
 const genId = () => `demo-${Date.now()}-${_seq++}`
 
+function matchOne(op, cell, val) {
+  switch (op) {
+    case 'eq': return cell === val
+    case 'neq': return cell !== val
+    case 'in': return Array.isArray(val) && val.includes(cell)
+    case 'is': return cell === val || (val === null && cell == null)
+    case 'gt': return cell > val
+    case 'gte': return cell >= val
+    case 'lt': return cell < val
+    case 'lte': return cell <= val
+    case 'like':
+    case 'ilike': {
+      const re = new RegExp('^' + String(val).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*') + '$', op === 'ilike' ? 'i' : '')
+      return re.test(String(cell ?? ''))
+    }
+    default: return true // unknown filter → don't exclude
+  }
+}
+
 function matches(row, filters) {
   return filters.every(([op, col, val]) => {
     const cell = row[col]
-    switch (op) {
-      case 'eq': return cell === val
-      case 'neq': return cell !== val
-      case 'in': return Array.isArray(val) && val.includes(cell)
-      case 'is': return cell === val || (val === null && cell == null)
-      case 'gt': return cell > val
-      case 'gte': return cell >= val
-      case 'lt': return cell < val
-      case 'lte': return cell <= val
-      case 'like':
-      case 'ilike': {
-        const re = new RegExp('^' + String(val).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*') + '$', op === 'ilike' ? 'i' : '')
-        return re.test(String(cell ?? ''))
-      }
-      default: return true // unknown filter → don't exclude
-    }
+    // `not(col, op, val)` is stored as ['not:<op>', col, val]
+    if (op.startsWith('not:')) return !matchOne(op.slice(4), cell, val)
+    return matchOne(op, cell, val)
   })
 }
 
@@ -70,6 +76,7 @@ class Query {
   lte(c, v) { this.filters.push(['lte', c, v]); return this }
   like(c, v) { this.filters.push(['like', c, v]); return this }
   ilike(c, v) { this.filters.push(['ilike', c, v]); return this }
+  not(c, op, v) { this.filters.push([`not:${op}`, c, v]); return this }
   or() { return this } // treated as no-op filter (returns everything)
   contains() { return this }
 

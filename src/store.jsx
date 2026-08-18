@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { uid } from './lib.js'
 import { supabase } from './supabase.js'
 import { useAuth } from './auth.jsx'
+import { isDemo } from './demo/demoMode.js'
+import { demoAppState } from './demo/demoSeed.js'
 
 // App state lives in Supabase (table app_state, one JSON doc per domain) so
 // every device sees the same data. localStorage is kept as a fast local cache
@@ -60,6 +62,9 @@ const DEFAULT_STATE = {
 }
 
 function load() {
+  // Demo mode: always start from the synthetic seed (never localStorage), so a
+  // refresh is a clean reset and no real cached data can leak in.
+  if (isDemo()) return { ...DEFAULT_STATE, ...demoAppState() }
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) return DEFAULT_STATE
@@ -91,6 +96,12 @@ export function StoreProvider({ children }) {
   // Initial pull: server copy wins; if the server is empty (first ever run),
   // seed it from whatever this browser has locally.
   useEffect(() => {
+    // Demo mode is fully seeded from load() — no server pull, no persistence.
+    if (isDemo()) {
+      loadedRef.current = true
+      setSyncStatus('synced')
+      return
+    }
     let cancelled = false
     ;(async () => {
       try {
@@ -132,6 +143,7 @@ export function StoreProvider({ children }) {
   // Persist: localStorage immediately, server debounced (only changed domains).
   // Viewers never push — the database would reject it anyway.
   useEffect(() => {
+    if (isDemo()) return // demo edits live only in memory; refresh resets them
     localStorage.setItem(KEY, JSON.stringify(state))
     if (!loadedRef.current || !canEditRef.current) return
     const changed = DOMAIN_KEYS.filter(

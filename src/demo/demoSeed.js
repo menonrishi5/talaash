@@ -94,16 +94,17 @@ const dues = {
     { id: 'c2', rateId: rate(2), name: 'Deposit', amountCents: 3000, order: 1 },
     { id: 'c3', rateId: rate(3), name: 'Bootcamp Dues', amountCents: 7500, order: 2 },
   ],
+  // keyed by category id (the grid resolves overrides via c.id ?? c.rateId)
   overrides: {
-    m1: { [rate(1)]: 'paid', [rate(2)]: 'paid', [rate(3)]: 'paid' },
-    m2: { [rate(1)]: 'paid', [rate(2)]: 'paid' },
-    m3: { [rate(2)]: 'paid' },
-    m4: { [rate(1)]: 'paid', [rate(2)]: 'paid', [rate(3)]: 'paid' },
-    m5: { [rate(1)]: 'paid' },
-    m6: { [rate(2)]: 'exempt' },
-    m8: { [rate(1)]: 'paid', [rate(2)]: 'paid' },
-    m10: { [rate(2)]: 'paid' },
-    m11: { [rate(1)]: 'paid', [rate(2)]: 'paid', [rate(3)]: 'paid' },
+    m1: { c1: 'paid', c2: 'paid', c3: 'paid' },
+    m2: { c1: 'paid', c2: 'paid' },
+    m3: { c2: 'paid' },
+    m4: { c1: 'paid', c2: 'paid', c3: 'paid' },
+    m5: { c1: 'paid' },
+    m6: { c2: 'exempt' },
+    m8: { c1: 'paid', c2: 'paid' },
+    m10: { c2: 'paid' },
+    m11: { c1: 'paid', c2: 'paid', c3: 'paid' },
   },
   contactLinks: {},
   lateFineWaivers: {},
@@ -141,6 +142,82 @@ function appStateDomains() {
   return { roster, segments, practiceBlocks, benching, dues, settings }
 }
 
+// --- attendance + finances ---------------------------------------------------
+// "Today" in the team's timezone, matching todayTeamISO() at runtime. Computed
+// locally so this file needn't import supabase.js (which imports this file).
+const todayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
+const nameOf = (id) => roster.find((m) => m.id === id)?.name ?? 'Unknown'
+const at = (dateISO, min = 2) => `${dateISO}T19:${String(min).padStart(2, '0')}:00-05:00`
+
+// A flat check-in row. `attendance_sessions` is embedded so the join in
+// MyAttendance (`checkins(…, attendance_sessions(session_date))`) resolves.
+let _ci = 0
+function ci(session_id, session_date, member_id, { late = 0, fine = 0, no_show = false, min = 2 } = {}) {
+  return {
+    id: `ci-${++_ci}`, session_id, member_id, member_name: nameOf(member_id),
+    mins_late: late, fine, fine_pending: false, no_show,
+    checked_at: no_show ? null : at(session_date, min),
+    attendance_sessions: { session_date },
+  }
+}
+
+const sessFields = { cutoff_min: 19 * 60, grace_min: 5, tier1_until_min: 30, tier1_amount: 5, tier2_amount: 10, fines_active: true }
+
+// today's open session — renders as a live practice with people checked in
+const todaySessionId = 'sess-today'
+const todayCheckins = [
+  ci(todaySessionId, todayISO, 'm1', { min: 1 }),
+  ci(todaySessionId, todayISO, 'm2', { min: 3 }),
+  ci(todaySessionId, todayISO, 'm4', { min: 4 }),
+  ci(todaySessionId, todayISO, 'm6', { min: 6 }),
+  ci(todaySessionId, todayISO, 'm3', { late: 8, fine: 5, min: 8 }),
+  ci(todaySessionId, todayISO, 'm7', { late: 42, fine: 10, min: 42 }),
+]
+
+// past sessions — power the ledger + history
+const p1 = addDaysISO(todayISO, -3)
+const p2 = addDaysISO(todayISO, -5)
+const p3 = addDaysISO(todayISO, -7)
+const pastCheckins = [
+  ci('sess-p1', p1, 'm1'), ci('sess-p1', p1, 'm2'), ci('sess-p1', p1, 'm3'),
+  ci('sess-p1', p1, 'm5', { late: 8, fine: 5 }), ci('sess-p1', p1, 'm7'),
+  ci('sess-p1', p1, 'm9', { no_show: true }),
+  ci('sess-p2', p2, 'm1'), ci('sess-p2', p2, 'm2', { late: 35, fine: 10 }),
+  ci('sess-p2', p2, 'm4'), ci('sess-p2', p2, 'm6'), ci('sess-p2', p2, 'm8'),
+  ci('sess-p3', p3, 'm1'), ci('sess-p3', p3, 'm3'), ci('sess-p3', p3, 'm5'),
+  ci('sess-p3', p3, 'm10', { late: 6, fine: 5 }), ci('sess-p3', p3, 'm11'),
+]
+const finesFor = (sid) => pastCheckins.filter((c) => c.session_id === sid).map((c) => ({ fine: c.fine }))
+
+const attendance_sessions = [
+  { id: todaySessionId, session_date: todayISO, ended_at: null, ...sessFields },
+  // past sessions embed checkins(fine) for the History join
+  { id: 'sess-p1', session_date: p1, ended_at: at(p1, 55), ...sessFields, checkins: finesFor('sess-p1') },
+  { id: 'sess-p2', session_date: p2, ended_at: at(p2, 55), ...sessFields, checkins: finesFor('sess-p2') },
+  { id: 'sess-p3', session_date: p3, ended_at: at(p3, 55), ...sessFields, checkins: finesFor('sess-p3') },
+]
+const session_secrets = [{ session_id: todaySessionId, password: 'TALAASH' }]
+const checkins = [...todayCheckins, ...pastCheckins]
+
+// fine payments (settle a couple of balances; leave some outstanding)
+const payments = [
+  { id: 'pay1', member_id: 'm3', amount: 5, note: 'Venmo', created_at: at(todayISO) },
+  { id: 'pay2', member_id: 'm2', amount: 10, note: 'cash', created_at: at(p2, 58) },
+]
+
+// excuses — one pending absence to review, one already approved
+const excuses = [
+  { id: 'ex1', member_id: 'm5', practice_date: addDaysISO(todayISO, 2), coming: false, status: 'pending', reason: 'Midterm exam that night', arrival_min: null, decided_at: null },
+  { id: 'ex2', member_id: 'm8', practice_date: p1, coming: false, status: 'approved', reason: 'Family in town', arrival_min: null, decided_at: at(p1) },
+]
+
+// reimbursements — one pending, one approved (partly offsetting dues), one paid
+const reimbursements = [
+  { id: 'rb1', member_id: 'm3', status: 'pending', amount_cents: 4250, description: 'Props — fabric & safety pins', category: 'Props', purchase_date: addDaysISO(todayISO, -2), created_at: at(todayISO, 10) },
+  { id: 'rb2', member_id: 'm5', status: 'approved', amount_cents: 6000, approved_amount_cents: 6000, dues_credit_cents: 2500, description: 'Competition entry — shared van gas', category: 'Travel', purchase_date: p2, created_at: at(p2, 20) },
+  { id: 'rb3', member_id: 'm2', status: 'paid', amount_cents: 3000, approved_amount_cents: 3000, dues_credit_cents: 0, paid_amount_cents: 3000, paid_at: at(p3, 30), description: 'Rehearsal room deposit', category: 'Venue', purchase_date: p3, created_at: at(p3, 10) },
+]
+
 // The demo "session" that flows through auth.jsx. Email matches an owner email
 // so the demo shows the full owner/editor experience.
 export const demoSession = {
@@ -167,15 +244,15 @@ export function demoTables() {
     app_state: Object.keys(domains).map((key) => ({ key, data: domains[key] })),
     profiles,
     member_availability,
-    // financial + attendance tables start empty (safe empty states); enrich later
-    reimbursements: [],
+    reimbursements,
+    payments,
+    checkins,
+    attendance_sessions,
+    session_secrets,
+    excuses,
+    // no synthetic Zeffy/Venmo data — those screens key off external imports
     zeffy_payments: [],
-    payments: [],
-    checkins: [],
-    attendance_sessions: [],
-    session_secrets: [],
     attendance_announcements: [],
-    excuses: [],
     slot_responses: [],
     venmo_transactions: [],
     notification_log: [],

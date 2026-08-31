@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { DAY_SHORT, addDaysISO, fmtDate, minToLabel, toISODate } from '../lib.js'
+import { useEffect, useRef, useState } from 'react'
+import { DAY_SHORT, DAY_NAMES, addDaysISO, fmtDate, minToLabel, toISODate, dayIndexOfISO } from '../lib.js'
 
 // Google-Calendar-style week grid.
 // events: [{ id, day (0=Mon..6=Sun), startMin, endMin, color, title, subtitle, dashed, onClick }]
@@ -7,7 +7,7 @@ import { DAY_SHORT, addDaysISO, fmtDate, minToLabel, toISODate } from '../lib.js
 
 const START_HOUR = 8
 const END_HOUR = 24
-const PX_PER_30 = 26
+const PX_PER_30 = 30
 const SNAP = 30
 
 const minY = (min) => ((min - START_HOUR * 60) / 30) * PX_PER_30
@@ -39,14 +39,18 @@ function layoutDay(events) {
   })
 }
 
-export default function WeekGrid({ weekISO, events, onDragCreate }) {
+export default function WeekGrid({ weekISO, events, onDragCreate, className = '' }) {
   // Drag state lives in a ref (read by event handlers, which can fire several
   // times between renders) and is mirrored to state for the preview render.
   const dragRef = useRef(null)
   const [drag, setDragState] = useState(null) // {day, anchorMin, startMin, endMin}
   const setDrag = (d) => { dragRef.current = d; setDragState(d) }
   const colRefs = useRef({})
-  const todayISO = toISODate(new Date())
+  const now = new Date()
+  const todayISO = toISODate(now)
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  const todayCol = DAY_SHORT.findIndex((_, i) => addDaysISO(weekISO, i) === todayISO)
+  const showNowLine = todayCol >= 0 && nowMin >= START_HOUR * 60 && nowMin <= END_HOUR * 60
 
   const hours = []
   for (let h = START_HOUR; h < END_HOUR; h++) hours.push(h)
@@ -79,16 +83,19 @@ export default function WeekGrid({ weekISO, events, onDragCreate }) {
   }
 
   return (
-    <div className="overflow-x-auto thin-scroll">
+    <div className={`overflow-x-auto thin-scroll ${className}`}>
       <div className="min-w-[860px]">
         {/* Day headers */}
-        <div className="grid" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
-          <div />
+        <div
+          className="grid md:sticky md:top-0 z-20"
+          style={{ gridTemplateColumns: '56px repeat(7, 1fr)', background: 'var(--surface)' }}
+        >
+          <div className="border-b border-line" />
           {DAY_SHORT.map((d, i) => {
             const iso = addDaysISO(weekISO, i)
             const isToday = iso === todayISO
             return (
-              <div key={d} className="px-2 py-2 text-center border-b border-line">
+              <div key={d} className={`px-2 py-2 text-center border-b border-line ${isToday ? 'bg-accent/5' : ''}`}>
                 <div className={`text-[11px] font-medium uppercase tracking-wide ${isToday ? 'text-ink' : 'text-faint'}`}>
                   {d}
                 </div>
@@ -125,7 +132,7 @@ export default function WeekGrid({ weekISO, events, onDragCreate }) {
               <div
                 key={day}
                 ref={(el) => (colRefs.current[day] = el)}
-                className={`relative border-l border-line ${onDragCreate ? 'cursor-crosshair' : ''}`}
+                className={`relative border-l border-line ${day === todayCol ? 'bg-accent/5' : ''} ${onDragCreate ? 'cursor-crosshair' : ''}`}
                 style={{ height: totalHeight }}
                 onPointerDown={(e) => startDrag(day, e)}
                 onPointerMove={moveDrag}
@@ -138,6 +145,17 @@ export default function WeekGrid({ weekISO, events, onDragCreate }) {
                     style={{ top: minY(h * 60) }}
                   />
                 ))}
+
+                {/* current-time indicator */}
+                {showNowLine && day === todayCol && (
+                  <div
+                    className="absolute inset-x-0 z-10 pointer-events-none flex items-center"
+                    style={{ top: minY(nowMin) }}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full -ml-0.5" style={{ background: 'var(--bad)' }} />
+                    <span className="flex-1 h-px" style={{ background: 'var(--bad)' }} />
+                  </div>
+                )}
 
                 {dayEvents.map(({ ev, lane, laneCount }) => (
                   <div
@@ -195,6 +213,142 @@ export default function WeekGrid({ weekISO, events, onDragCreate }) {
           })}
         </div>
       </div>
+    </div>
+  )
+}
+
+// Phone-friendly single-day view: the same time grid as the week view, but one
+// day wide with a prev/next stepper. Tapping an event fires its onClick;
+// optional onAddForDay(day) renders an "add" button under the grid.
+export function WeekAgenda({ weekISO, events, onAddForDay, className = '' }) {
+  const now = new Date()
+  const todayISO = toISODate(now)
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  const todayIdx = dayIndexOfISO(todayISO)
+  const weekHasToday = addDaysISO(todayISO, -todayIdx) === weekISO
+  const [dayIdx, setDayIdx] = useState(weekHasToday ? todayIdx : 0)
+  const scrollRef = useRef(null)
+
+  const dateISO = addDaysISO(weekISO, dayIdx)
+  const isToday = dateISO === todayISO
+  const dayEvents = layoutDay(events.filter((ev) => ev.day === dayIdx))
+
+  const hours = []
+  for (let h = START_HOUR; h < END_HOUR; h++) hours.push(h)
+
+  // On day change, open scrolled to the evening (practices run after 7 PM),
+  // pulled up to the earliest event or to "now" when it's today. Doesn't fire
+  // on later re-renders, so it won't fight a manual scroll.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const earliest = events
+      .filter((ev) => ev.day === dayIdx)
+      .reduce((m, ev) => Math.min(m, ev.startMin), 17 * 60)
+    let target = Math.min(earliest - 60, 17 * 60)
+    if (isToday) target = Math.min(target, nowMin - 90)
+    el.scrollTop = Math.max(0, minY(Math.max(target, START_HOUR * 60)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayIdx, weekISO])
+
+  return (
+    <div className={className}>
+      <div className="flex items-center justify-between mb-3">
+        <button
+          onClick={() => setDayIdx((d) => (d + 6) % 7)}
+          className="p-2 -ml-2 rounded-lg text-muted hover:bg-subtle hover:text-ink cursor-pointer"
+          aria-label="Previous day"
+        >‹</button>
+        <div className="text-center">
+          <div className={`text-sm font-semibold ${isToday ? 'text-accent' : 'text-ink'}`}>
+            {DAY_NAMES[dayIdx]}
+          </div>
+          <div className="text-[11px] text-faint">{fmtDate(dateISO, { month: 'short', day: 'numeric' })}</div>
+        </div>
+        <button
+          onClick={() => setDayIdx((d) => (d + 1) % 7)}
+          className="p-2 -mr-2 rounded-lg text-muted hover:bg-subtle hover:text-ink cursor-pointer"
+          aria-label="Next day"
+        >›</button>
+      </div>
+
+      <div
+        ref={scrollRef}
+        className="overflow-y-auto thin-scroll rounded-xl border border-line"
+        style={{ maxHeight: 440 }}
+      >
+        <div className="grid" style={{ gridTemplateColumns: '48px 1fr', height: totalHeight }}>
+          {/* time gutter */}
+          <div className="relative">
+            {hours.map((h) => (
+              <div
+                key={h}
+                className="absolute right-2 -translate-y-1/2 text-[10px] text-faint"
+                style={{ top: minY(h * 60) }}
+              >
+                {h === 12 ? '12 PM' : h > 12 ? `${h - 12} PM` : `${h} AM`}
+              </div>
+            ))}
+          </div>
+
+          {/* day column */}
+          <div className="relative border-l border-line">
+            {hours.map((h) => (
+              <div
+                key={h}
+                className="absolute inset-x-0 border-t border-line"
+                style={{ top: minY(h * 60) }}
+              />
+            ))}
+
+            {isToday && nowMin >= START_HOUR * 60 && nowMin <= END_HOUR * 60 && (
+              <div
+                className="absolute inset-x-0 z-10 flex items-center pointer-events-none"
+                style={{ top: minY(nowMin) }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full -ml-0.5" style={{ background: 'var(--bad)' }} />
+                <span className="flex-1 h-px" style={{ background: 'var(--bad)' }} />
+              </div>
+            )}
+
+            {dayEvents.map(({ ev, lane, laneCount }) => (
+              <button
+                key={ev.id}
+                onClick={ev.onClick}
+                disabled={!ev.onClick}
+                aria-label={`${ev.title}, ${minToLabel(ev.startMin)} to ${minToLabel(ev.endMin)}`}
+                className={`absolute rounded-lg px-2 py-1 text-[11px] leading-tight overflow-hidden text-left enabled:cursor-pointer ${
+                  ev.dashed ? 'border-2 border-dashed' : 'text-white shadow-sm'
+                }`}
+                style={{
+                  top: minY(ev.startMin) + 1,
+                  height: Math.max(minY(ev.endMin) - minY(ev.startMin) - 2, 20),
+                  left: `calc(${(lane / laneCount) * 100}% + 2px)`,
+                  width: `calc(${(1 / laneCount) * 100}% - 4px)`,
+                  background: ev.dashed ? 'var(--surface)' : ev.color,
+                  borderColor: ev.dashed ? ev.color : undefined,
+                  color: ev.dashed ? ev.color : undefined,
+                  boxShadow: ev.warn ? 'inset 0 0 0 2px var(--bad)' : undefined,
+                }}
+              >
+                {ev.warn && <span className="absolute top-0.5 right-0.5 text-[10px] leading-none">⚠️</span>}
+                <div className="font-semibold truncate">{ev.title}</div>
+                {ev.subtitle && <div className="truncate opacity-90">{ev.subtitle}</div>}
+                <div className="opacity-75">{minToLabel(ev.startMin)} – {minToLabel(ev.endMin)}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {onAddForDay && (
+        <button
+          onClick={() => onAddForDay(dayIdx)}
+          className="mt-3 w-full rounded-xl border border-dashed border-line-strong py-2.5 text-sm font-medium text-muted hover:text-ink hover:border-faint cursor-pointer transition-colors"
+        >
+          ＋ Add block
+        </button>
+      )}
     </div>
   )
 }

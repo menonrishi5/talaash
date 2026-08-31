@@ -5,7 +5,7 @@ import { putFile, deleteFile, fileURL } from '../fileStore.js'
 import { uid, segColor, MIX_STATUSES, SIDES, sideLabel } from '../lib.js'
 import { isActive } from '../matching.js'
 import { readFormPages, detectMemberSides, pageToStage } from '../formReader.js'
-import { Button, Card, CardHeader, Badge, Select, TextInput, EmptyState, Modal } from './ui.jsx'
+import { Button, Card, CardHeader, Badge, Select, TextInput, EmptyState, Modal, PageHeader } from './ui.jsx'
 
 function UploadButton({ accept, label, onFile }) {
   const ref = useRef(null)
@@ -59,15 +59,11 @@ export default function SetDesign() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h1 className="text-xl font-bold text-ink mb-1">Set Design</h1>
-          <p className="text-sm text-muted">
-            Show lineup, forms, mixes, casting and stage traffic.
-          </p>
-        </div>
-        {canEdit && <Button variant="primary" onClick={addNew}>+ New segment</Button>}
-      </div>
+      <PageHeader
+        title="Set Design"
+        subtitle="Show lineup, forms, mixes, casting and stage traffic."
+        actions={canEdit && <Button variant="primary" onClick={addNew}>+ New segment</Button>}
+      />
 
       {state.segments.length === 0 ? (
         <Card>
@@ -81,7 +77,7 @@ export default function SetDesign() {
           />
         </Card>
       ) : (
-        <div className="flex gap-5 items-start">
+        <div className="flex flex-col gap-5 items-stretch lg:flex-row lg:items-start">
           <Lineup selectedId={selected?.id} onSelect={setSelectedId} />
           {selected && <SegmentDetail key={selected.id} segment={selected} />}
         </div>
@@ -95,9 +91,9 @@ function Lineup({ selectedId, onSelect }) {
   const { canEdit } = useAuth()
 
   return (
-    <Card className="w-64 shrink-0 sticky top-6">
+    <Card className="w-full shrink-0 lg:w-64 lg:sticky lg:top-6">
       <CardHeader title="Show order" subtitle="Top runs first" />
-      <ul className="px-3 pb-3 space-y-1">
+      <ul className="px-3 pb-3 space-y-1 max-h-72 overflow-y-auto thin-scroll lg:max-h-none lg:overflow-visible">
         {state.segments.map((seg, i) => {
           const st = mixStatusInfo(seg.mixStatus)
           return (
@@ -118,7 +114,7 @@ function Lineup({ selectedId, onSelect }) {
                     {i + 1} of {state.segments.length} · {seg.members.length} dancers · {st.label}
                   </div>
                 </div>
-                <div className={`${canEdit ? 'flex' : 'hidden'} flex-col ${seg.id === selectedId ? '' : 'opacity-0 group-hover:opacity-100'}`}>
+                <div className={`${canEdit ? 'flex' : 'hidden'} flex-col ${seg.id === selectedId ? '' : 'lg:opacity-0 lg:group-hover:opacity-100'}`}>
                   <button
                     className="text-[10px] leading-none px-1 py-0.5 hover:scale-125 transition-transform cursor-pointer disabled:opacity-20"
                     disabled={i === 0}
@@ -159,7 +155,7 @@ function SegmentDetail({ segment }) {
     <div className="flex-1 min-w-0 space-y-5">
       {/* Header card */}
       <Card>
-        <div className="px-5 py-4 flex items-center gap-3">
+        <div className="px-5 py-4 flex items-center gap-3 flex-wrap">
           <span className="w-3 h-3 rounded-full shrink-0" style={{ background: segColor(idx) }} />
           {renaming ? (
             <TextInput
@@ -172,7 +168,7 @@ function SegmentDetail({ segment }) {
               onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
             />
           ) : (
-            <h2 className="text-lg font-bold text-ink flex-1 truncate">{segment.name}</h2>
+            <h2 className="text-lg font-bold text-ink flex-1 min-w-0 truncate">{segment.name}</h2>
           )}
           <Badge className="bg-subtle text-muted">#{idx + 1} in show</Badge>
           {canEdit && (

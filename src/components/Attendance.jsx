@@ -5,7 +5,7 @@ import { useAuth } from '../auth.jsx'
 import { supabase, todayTeamISO, fmtTeamTime } from '../supabase.js'
 import { minToLabel, fmtDate, nextPractice, DAY_NAMES } from '../lib.js'
 import { isActive, buildMatcher } from '../matching.js'
-import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, ViewToggle, inputCls } from './ui.jsx'
+import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, ViewToggle, PageHeader, inputCls } from './ui.jsx'
 
 const money = (n) => `$${Number(n) % 1 ? Number(n).toFixed(2) : Number(n)}`
 
@@ -82,10 +82,10 @@ function MyAttendance() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-xl font-bold text-ink mb-1">My Attendance</h1>
-        <p className="text-sm text-muted">Your check-ins and fines — only you and the board see this.</p>
-      </div>
+      <PageHeader
+        title="My Attendance"
+        subtitle="Your check-ins and fines — only you and the board see this."
+      />
 
       {todaySession && (
         <Card className="mb-5">
@@ -394,19 +394,17 @@ function AttendanceAdmin() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-ink mb-1">Attendance</h1>
-          <p className="text-sm text-muted">
-            Check-in link + rotating password per practice; fines compute on the server clock.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {canEdit && <AnnounceButton />}
-          {canEdit && <Button size="sm" onClick={() => setScheduleOpen(true)}>Practice schedule</Button>}
-          {canEdit && <Button size="sm" onClick={() => setPayModal(true)}>Record payment</Button>}
-        </div>
-      </div>
+      <PageHeader
+        title="Attendance"
+        subtitle="Check-in link + rotating password per practice; fines compute on the server clock."
+        actions={canEdit && (
+          <>
+            <AnnounceButton />
+            <Button size="sm" onClick={() => setScheduleOpen(true)}>Practice schedule</Button>
+            <Button size="sm" onClick={() => setPayModal(true)}>Record payment</Button>
+          </>
+        )}
+      />
 
       {error && (
         <div className="mb-4 rounded-2xl bg-bad-soft border border-bad/25 px-5 py-3 text-sm text-bad">

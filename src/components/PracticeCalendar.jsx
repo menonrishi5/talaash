@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { supabase } from '../supabase.js'
-import WeekGrid, { START_HOUR, END_HOUR } from './WeekGrid.jsx'
+import WeekGrid, { WeekAgenda, START_HOUR, END_HOUR } from './WeekGrid.jsx'
 import {
   weekStartISO, addDaysISO, dayIndexOfISO, fmtWeekRange, fmtDate, relativeDays,
   segColor, minToLabel, durationLabel, DAY_NAMES, toISODate,
 } from '../lib.js'
-import { Button, Card, CardHeader, Modal, Field, Select, Badge, EmptyState } from './ui.jsx'
+import { Button, Card, CardHeader, Modal, Field, Select, Badge, EmptyState, PageHeader } from './ui.jsx'
 import { MyAvailability, ConflictCheck, AutoSchedule, conflictsForBlock } from './Availability.jsx'
 import { isActive } from '../matching.js'
 
@@ -83,20 +83,18 @@ export default function PracticeCalendar() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h1 className="text-xl font-bold text-ink mb-1">Practice Calendar</h1>
-          <p className="text-sm text-muted">
-            {canEdit ? 'Drag on the grid to schedule a segment run.' : 'What’s being practiced when.'}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, -7))}>‹</Button>
-          <Button size="sm" onClick={() => setWeekISO(weekStartISO())}>Today</Button>
-          <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, 7))}>›</Button>
-          <span className="text-sm font-semibold text-ink ml-2 w-36 text-right">{fmtWeekRange(weekISO)}</span>
-        </div>
-      </div>
+      <PageHeader
+        title="Practice Calendar"
+        subtitle={canEdit ? 'Drag on the grid to schedule a segment run.' : 'What’s being practiced when.'}
+        actions={
+          <>
+            <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, -7))}>‹</Button>
+            <Button size="sm" onClick={() => setWeekISO(weekStartISO())}>Today</Button>
+            <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, 7))}>›</Button>
+            <span className="text-sm font-semibold text-ink ml-1 whitespace-nowrap">{fmtWeekRange(weekISO)}</span>
+          </>
+        }
+      />
 
       {/* Members set their availability; editors check it against a segment's cast. */}
       <MyAvailability />
@@ -113,6 +111,7 @@ export default function PracticeCalendar() {
         ) : (
           <div className="p-3">
             <WeekGrid
+              className="hidden sm:block"
               weekISO={weekISO}
               events={events}
               onDragCreate={canEdit
@@ -120,11 +119,19 @@ export default function PracticeCalendar() {
                     setDraft({ day, startMin, endMin, segmentId: state.segments[0]?.id ?? '' })
                 : undefined}
             />
+            <WeekAgenda
+              className="sm:hidden"
+              weekISO={weekISO}
+              events={events}
+              onAddForDay={canEdit
+                ? (day) => setDraft({ day, startMin: 18 * 60, endMin: 19 * 60, segmentId: state.segments[0]?.id ?? '' })
+                : undefined}
+            />
           </div>
         )}
       </Card>
 
-      <Tracker segIndex={segIndex} />
+      {canEdit && <Tracker segIndex={segIndex} />}
 
       {draft && (
         <Modal

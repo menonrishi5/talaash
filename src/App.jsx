@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import SetDesign from './components/SetDesign.jsx'
 import PracticeCalendar from './components/PracticeCalendar.jsx'
 import Benching from './components/Benching.jsx'
@@ -119,15 +119,60 @@ function ThemeToggle() {
 
 export default function App() {
   const [tab, setTab] = useState('set-design')
+  const [navOpen, setNavOpen] = useState(false)
   const { syncStatus } = useStore()
   const { session, role, signOut } = useAuth()
   const sync = SYNC_LABEL[syncStatus] ?? SYNC_LABEL.connecting
+  const activeNav = NAV.find((n) => n.id === tab)
+
+  // Esc closes the mobile drawer; lock body scroll while it's open.
+  useEffect(() => {
+    if (!navOpen) return
+    const onKey = (e) => e.key === 'Escape' && setNavOpen(false)
+    window.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [navOpen])
+
+  const select = (id) => { setTab(id); setNavOpen(false) }
 
   return (
-    <div className="h-full flex">
-      {/* Sidebar */}
+    <div className="h-full md:flex">
+      {/* Mobile top bar */}
+      <header
+        className="md:hidden sticky top-0 z-30 flex items-center gap-3 px-4 h-14 border-b border-line"
+        style={{ background: 'var(--surface)' }}
+      >
+        <button
+          onClick={() => setNavOpen(true)}
+          aria-label="Open menu"
+          className="-ml-1 p-2 rounded-lg text-muted hover:bg-subtle hover:text-ink cursor-pointer"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M4 7h16M4 12h16M4 17h16" />
+          </svg>
+        </button>
+        <span className="text-sm font-semibold text-ink">{activeNav?.label ?? 'Talaash HQ'}</span>
+        <span className={`ml-auto w-2 h-2 rounded-full ${sync.dot}`} title={sync.text} />
+      </header>
+
+      {/* Backdrop for the mobile drawer */}
+      {navOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-40 bg-black/45"
+          onClick={() => setNavOpen(false)}
+        />
+      )}
+
+      {/* Sidebar — static on desktop, slide-over drawer on mobile */}
       <aside
-        className="w-56 shrink-0 flex flex-col themed"
+        className={`themed flex flex-col overflow-y-auto thin-scroll fixed inset-y-0 left-0 z-50 w-64 transition-transform duration-200 md:static md:z-auto md:w-56 md:shrink-0 md:translate-x-0 md:overflow-visible ${
+          navOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
         style={{ background: 'var(--sidebar)', color: 'var(--sidebar-muted)' }}
       >
         <div className="px-5 pt-6 pb-5">
@@ -154,7 +199,7 @@ export default function App() {
             return (
               <button
                 key={n.id}
-                onClick={() => setTab(n.id)}
+                onClick={() => select(n.id)}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium cursor-pointer transition-colors"
                 style={active
                   ? { background: 'var(--accent)', color: 'var(--accent-ink)', boxShadow: '0 2px 10px color-mix(in srgb, var(--accent) 40%, transparent)' }
@@ -200,8 +245,8 @@ export default function App() {
       </aside>
 
       {/* Main */}
-      <main className="flex-1 min-w-0 overflow-y-auto thin-scroll">
-        <div className="max-w-6xl mx-auto px-6 py-6">
+      <main className="flex-1 min-w-0 md:overflow-y-auto thin-scroll">
+        <div className="max-w-6xl mx-auto px-4 py-4 md:px-6 md:py-6">
           {tab === 'set-design' && <SetDesign />}
           {tab === 'calendar' && <PracticeCalendar />}
           {tab === 'benching' && <Benching />}

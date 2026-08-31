@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { supabase, SUPABASE_URL } from '../supabase.js'
-import WeekGrid from './WeekGrid.jsx'
+import WeekGrid, { WeekAgenda } from './WeekGrid.jsx'
 import {
   uid, weekStartISO, addDaysISO, fmtWeekRange, minToLabel, durationLabel,
   DAY_NAMES, parseBenchingSheet, toISODate,
 } from '../lib.js'
 import { isActive } from '../matching.js'
-import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, inputCls } from './ui.jsx'
+import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, PageHeader, inputCls } from './ui.jsx'
 
 const STATUS_META = {
   pending: { label: 'Awaiting response', color: '#a1a1aa', badge: 'bg-subtle text-muted' },
@@ -105,21 +105,21 @@ export default function Benching() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-ink mb-1">Benching</h1>
-          <p className="text-sm text-muted">Room reservations — who's holding the space, and when.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => setStatsOpen(true)}>Hour tracker</Button>
-          {canEdit && (
-            <>
-              <Button size="sm" onClick={() => setImportOpen(true)}>Import sheet</Button>
-              <Button size="sm" variant="primary" onClick={() => setSlotModal('new')}>+ Add slot</Button>
-            </>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="Benching"
+        subtitle="Room reservations — who's holding the space, and when."
+        actions={
+          <>
+            <Button size="sm" onClick={() => setStatsOpen(true)}>Hour tracker</Button>
+            {canEdit && (
+              <>
+                <Button size="sm" onClick={() => setImportOpen(true)}>Import sheet</Button>
+                <Button size="sm" variant="primary" onClick={() => setSlotModal('new')}>+ Add slot</Button>
+              </>
+            )}
+          </>
+        }
+      />
 
       {memberId ? (
         <MyBenching responses={responses} onChanged={loadResponses} />
@@ -200,7 +200,7 @@ export default function Benching() {
 
       {/* Week grid */}
       <Card className="mb-5">
-        <div className="flex items-center justify-between px-5 pt-4">
+        <div className="flex flex-col gap-2 px-5 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-1.5 text-[11px] text-muted flex-wrap">
             {Object.entries(STATUS_META).map(([k, v]) => (
               <span key={k} className="inline-flex items-center gap-1 mr-2">
@@ -209,11 +209,11 @@ export default function Benching() {
               </span>
             ))}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, -7))}>‹</Button>
             <Button size="sm" onClick={() => setWeekISO(weekStartISO())}>Today</Button>
             <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, 7))}>›</Button>
-            <span className="text-sm font-semibold text-ink w-36 text-right">{fmtWeekRange(weekISO)}</span>
+            <span className="text-sm font-semibold text-ink whitespace-nowrap">{fmtWeekRange(weekISO)}</span>
           </div>
         </div>
         {benching.template.length === 0 ? (
@@ -232,7 +232,8 @@ export default function Benching() {
           />
         ) : (
           <div className="p-3">
-            <WeekGrid weekISO={weekISO} events={events} />
+            <WeekGrid className="hidden sm:block" weekISO={weekISO} events={events} />
+            <WeekAgenda className="sm:hidden" weekISO={weekISO} events={events} />
           </div>
         )}
       </Card>
@@ -410,7 +411,7 @@ function CalendarSubscribe() {
         subtitle="Practices and your benching slots, auto-updating in Google or Apple Calendar."
       />
       <div className="px-5 pb-5 flex items-center gap-2 flex-wrap">
-        <code className="flex-1 min-w-64 text-xs bg-subtle border border-line rounded-lg px-3 py-2 truncate" title={base}>
+        <code className="flex-1 min-w-0 text-xs bg-subtle border border-line rounded-lg px-3 py-2 truncate" title={base}>
           {base}
         </code>
         <Button size="sm" onClick={() => { navigator.clipboard.writeText(base); setCopied(true); setTimeout(() => setCopied(false), 2000) }}>
@@ -784,9 +785,10 @@ function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
 }
 
 // Roster-wide benching hour totals across every confirmed week.
+// Editors see everyone; members see just their own progress vs the requirement.
 function StatsModal({ onClose }) {
   const { state, setBenching } = useStore()
-  const { canEdit } = useAuth()
+  const { canEdit, memberId } = useAuth()
   const threshold = state.benching.threshold ?? 15
 
   const stats = useMemo(() => {
@@ -816,6 +818,48 @@ function StatsModal({ onClose }) {
     })
     .sort((a, b) => b.total - a.total)
 
+  // Members only see their own number and the requirement.
+  if (!canEdit) {
+    const s = stats[memberId] || { primary: 0, reserve: 0, cover: 0 }
+    const totalMin = s.primary + s.reserve + s.cover
+    const totalH = totalMin / 60
+    const pct = threshold > 0 ? Math.min((totalH / threshold) * 100, 100) : 100
+    const met = totalH >= threshold
+    return (
+      <Modal title="My benching hours" onClose={onClose}>
+        {!memberId ? (
+          <p className="text-sm text-muted">
+            Your account isn’t linked to a roster member yet — ask a board member to link it
+            (Roster → App access) and your hours will show up here.
+          </p>
+        ) : (
+          <>
+            <div className="text-center py-2">
+              <div className="text-4xl font-black text-ink">
+                {durationLabel(totalMin)}
+                <span className="text-lg font-semibold text-faint"> / {threshold}h</span>
+              </div>
+              <div className="mt-1 text-xs text-muted">confirmed benching hours this season</div>
+            </div>
+            <div className="h-2.5 rounded-full bg-subtle overflow-hidden my-3">
+              <div className={`h-full rounded-full ${met ? 'bg-good' : 'bg-accent'}`} style={{ width: `${pct}%` }} />
+            </div>
+            <p className="text-center text-sm">
+              {met
+                ? <span className="text-good font-semibold">✓ Requirement met</span>
+                : <span className="text-muted">{Math.max(threshold - totalH, 0).toFixed(1)} h left to reach the {threshold}h requirement</span>}
+            </p>
+            {totalMin > 0 && (
+              <p className="mt-3 text-[11px] text-faint text-center">
+                {durationLabel(s.primary)} normal · {durationLabel(s.reserve)} reserve · {durationLabel(s.cover)} cover
+              </p>
+            )}
+          </>
+        )}
+      </Modal>
+    )
+  }
+
   return (
     <Modal title="Benching hour tracker" onClose={onClose} wide>
       <div className="flex items-center gap-2 mb-4">
@@ -823,8 +867,7 @@ function StatsModal({ onClose }) {
         <input
           type="number"
           min="0"
-          disabled={!canEdit}
-          className="w-20 px-2 py-1 text-sm border border-line-strong rounded-lg disabled:bg-subtle"
+          className="w-20 px-2 py-1 text-sm border border-line-strong rounded-lg"
           value={threshold}
           onChange={(e) => setBenching({ threshold: Number(e.target.value) || 0 })}
         />
@@ -833,7 +876,8 @@ function StatsModal({ onClose }) {
       {rows.length === 0 ? (
         <p className="text-sm text-faint italic">Roster is empty.</p>
       ) : (
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto thin-scroll">
+        <table className="w-full text-sm min-w-[420px]">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-faint">
               <th className="pb-2 pr-3 font-medium">Member</th>
@@ -873,6 +917,7 @@ function StatsModal({ onClose }) {
             })}
           </tbody>
         </table>
+        </div>
       )}
     </Modal>
   )

@@ -4,7 +4,7 @@ import { useAuth } from '../auth.jsx'
 import { supabase } from '../supabase.js'
 import { uid } from '../lib.js'
 import { buildMatcher, buyerKey, buyerName, isActive } from '../matching.js'
-import { Button, Card, CardHeader, Modal, Badge, Select, EmptyState, ViewToggle, inputCls } from './ui.jsx'
+import { Button, Card, CardHeader, Modal, Badge, Select, EmptyState, ViewToggle, PageHeader, inputCls } from './ui.jsx'
 import VenmoTab from './Venmo.jsx'
 
 // Dues tracker driven by the Zeffy payment mirror — the app version of the
@@ -15,6 +15,22 @@ import VenmoTab from './Venmo.jsx'
 
 const cents = (c) => `$${(c / 100) % 1 ? (c / 100).toFixed(2) : c / 100}`
 const catId = (c) => c.id ?? c.rateId
+
+// Public Zeffy ticketing page where members actually pay their dues.
+const ZEFFY_URL = 'https://www.zeffy.com/en-US/ticketing/talaash--80'
+
+function ZeffyButton({ size = 'md', variant = 'primary', className = '' }) {
+  return (
+    <Button
+      size={size}
+      variant={variant}
+      className={className}
+      onClick={() => window.open(ZEFFY_URL, '_blank', 'noopener')}
+    >
+      Pay dues on Zeffy ↗
+    </Button>
+  )
+}
 const isFineCandidate = (p) => JSON.stringify(p.raw ?? '').toLowerCase().includes('fine')
 
 export default function Dues() {
@@ -248,26 +264,25 @@ function DuesAdmin() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-ink mb-1">Dues & Payments</h1>
-          <p className="text-sm text-muted">
-            Live from Zeffy — {succeeded.length} payments mirrored{payments?.[0] ? `, newest ${new Date(payments[0].created).toLocaleDateString()}` : ''}.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => setCampaignsOpen(true)}>
-            Campaigns ({campaigns.length - campaigns.filter((c) => excluded[c.id]).length}/{campaigns.length})
-          </Button>
-          {canEdit && <Button size="sm" onClick={() => setSetupOpen(true)}>Fee categories</Button>}
-          <Button size="sm" variant="primary" disabled={syncing} onClick={sync}>
-            {syncing ? 'Syncing…' : '↻ Sync Zeffy'}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Dues & Payments"
+        subtitle={`Live from Zeffy — ${succeeded.length} payments mirrored${payments?.[0] ? `, newest ${new Date(payments[0].created).toLocaleDateString()}` : ''}.`}
+        actions={
+          <>
+            <ZeffyButton size="sm" variant="secondary" />
+            <Button size="sm" onClick={() => setCampaignsOpen(true)}>
+              Campaigns ({campaigns.length - campaigns.filter((c) => excluded[c.id]).length}/{campaigns.length})
+            </Button>
+            {canEdit && <Button size="sm" onClick={() => setSetupOpen(true)}>Fee categories</Button>}
+            <Button size="sm" variant="primary" disabled={syncing} onClick={sync}>
+              {syncing ? 'Syncing…' : '↻ Sync Zeffy'}
+            </Button>
+          </>
+        }
+      />
 
       {/* Sub-tabs */}
-      <div className="flex gap-1.5 mb-5">
+      <div className="flex flex-wrap gap-1.5 mb-5">
         {[
           ['grid', "Who's paid"],
           ['payments', `Zeffy payments (${succeeded.length})`],
@@ -1004,12 +1019,12 @@ function MyDues() {
   if (!info.linked) {
     return (
       <div>
-        <h1 className="text-xl font-bold text-ink mb-1">My Dues</h1>
+        <PageHeader title="My Dues" actions={<ZeffyButton />} />
         <Card className="mt-4">
           <EmptyState
             icon={<span className="text-lg">🔗</span>}
             title="Your account isn't linked to a roster member yet"
-            hint="Ask a board member to link it (Roster → App access) — then your payments and what you owe show up here."
+            hint="Ask a board member to link it (Roster → App access) — then your payments and what you owe show up here. You can still pay your dues on Zeffy using the button above."
           />
         </Card>
       </div>
@@ -1070,10 +1085,11 @@ function MyDues() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-xl font-bold text-ink mb-1">My Dues</h1>
-        <p className="text-sm text-muted">Only you (and the board) can see this.</p>
-      </div>
+      <PageHeader
+        title="My Dues"
+        subtitle="Only you (and the board) can see this."
+        actions={<ZeffyButton />}
+      />
 
       <Card className="mb-5">
         <div className="px-5 py-5 flex items-center gap-6 flex-wrap">

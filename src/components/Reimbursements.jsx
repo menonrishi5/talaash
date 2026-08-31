@@ -5,7 +5,7 @@ import { supabase } from '../supabase.js'
 import { uid } from '../lib.js'
 import { putReceipt, receiptURL } from '../fileStore.js'
 import { memberOwedCents } from '../duesMath.js'
-import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, inputCls } from './ui.jsx'
+import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, PageHeader, inputCls } from './ui.jsx'
 
 const cents = (c) => `$${(c / 100) % 1 ? (c / 100).toFixed(2) : c / 100}`
 
@@ -97,13 +97,10 @@ export default function Reimbursements() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-xl font-bold text-ink mb-1">Reimbursements</h1>
-        <p className="text-sm text-muted">
-          Spent your own money on the team? Submit it here. Approved amounts offset your dues
-          first; anything left is paid back to you.
-        </p>
-      </div>
+      <PageHeader
+        title="Reimbursements"
+        subtitle="Spent your own money on the team? Submit it here. Approved amounts offset your dues first; anything left is paid back to you."
+      />
 
       <SubmitCard onSubmitted={load} />
 
@@ -242,12 +239,12 @@ function EditModal({ r, memberName, onClose }) {
 
 function Row({ r, memberName, children }) {
   return (
-    <li className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
-      <div className="flex-1 min-w-48">
-        <span className="font-medium text-ink">
+    <li className="py-2.5 flex items-center gap-x-3 gap-y-2 flex-wrap text-sm">
+      <div className="w-full min-w-0 sm:w-auto sm:flex-1 sm:min-w-48">
+        <span className="font-medium text-ink break-words">
           {memberName(r.member_id) ?? 'Unlinked account'} · {cents(r.amount_cents)}
         </span>
-        <span className="block text-xs text-muted">
+        <span className="block text-xs text-muted break-words">
           {r.description}
           {r.category ? ` · ${r.category}` : ''}
           {r.purchase_date ? ` · bought ${r.purchase_date}` : ''}
@@ -336,10 +333,10 @@ function SubmitCard({ onSubmitted }) {
               {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </Select>
           </Field>
-          <Field label="Receipt (photo/PDF)">
+          <Field label="Receipt (photo/PDF)" className="col-span-2 md:col-span-1">
             <input
               type="file" accept="image/*,application/pdf"
-              className="w-full text-xs text-muted file:mr-2 file:px-3 file:py-2 file:rounded-xl file:border file:border-line-strong file:bg-surface file:text-ink file:text-xs file:cursor-pointer"
+              className="w-full min-w-0 text-xs text-muted file:mr-2 file:px-3 file:py-2 file:rounded-xl file:border file:border-line-strong file:bg-surface file:text-ink file:text-xs file:cursor-pointer"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             />
           </Field>

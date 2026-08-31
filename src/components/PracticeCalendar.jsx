@@ -7,7 +7,7 @@ import {
   weekStartISO, addDaysISO, dayIndexOfISO, fmtWeekRange, fmtDate, relativeDays,
   segColor, minToLabel, durationLabel, DAY_NAMES, toISODate,
 } from '../lib.js'
-import { Button, Card, CardHeader, Modal, Field, Select, Badge, EmptyState, PageHeader } from './ui.jsx'
+import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, PageHeader } from './ui.jsx'
 import { MyAvailability, ConflictCheck, AutoSchedule, conflictsForBlock } from './Availability.jsx'
 import { isActive } from '../matching.js'
 
@@ -51,7 +51,7 @@ export default function PracticeCalendar() {
   })
 
   const events = weekBlocks.map((b) => {
-    const seg = state.segments.find((s) => s.id === b.segmentId)
+    const seg = b.segmentId ? state.segments.find((s) => s.id === b.segmentId) : null
     // Who in this segment's cast is busy during this scheduled block.
     const conflicts = canEdit && seg
       ? conflictsForBlock(avail, castOf(b.segmentId), b.date, b.startMin, b.endMin)
@@ -61,23 +61,27 @@ export default function PracticeCalendar() {
       day: dayIndexOfISO(b.date),
       startMin: b.startMin,
       endMin: b.endMin,
-      color: seg ? segColor(segIndex[seg.id]) : '#a1a1aa',
-      title: seg?.name ?? 'Deleted segment',
+      color: seg ? segColor(segIndex[seg.id]) : (b.label ? '#94a3b8' : '#a1a1aa'),
+      title: seg ? seg.name : (b.label || 'Deleted segment'),
       warn: conflicts.length > 0,
       subtitle: conflicts.length > 0 ? `⚠ ${conflicts.length} can't make it` : undefined,
       tooltip: conflicts.length > 0 ? `Conflicts: ${conflicts.map((m) => m.name).join(', ')}` : undefined,
       onClick: canEdit
-        ? () => setDraft({ id: b.id, day: dayIndexOfISO(b.date), startMin: b.startMin, endMin: b.endMin, segmentId: b.segmentId })
+        ? () => setDraft({ id: b.id, day: dayIndexOfISO(b.date), startMin: b.startMin, endMin: b.endMin, segmentId: b.segmentId || '', label: b.label || '' })
         : undefined,
     }
   })
 
   const save = () => {
     const { id, day, startMin, endMin, segmentId } = draft
-    if (!segmentId || endMin <= startMin) return
+    const label = (draft.label || '').trim()
+    if ((!segmentId && !label) || endMin <= startMin) return
     const date = addDaysISO(weekISO, day)
-    if (id) updatePracticeBlock(id, { date, startMin, endMin, segmentId })
-    else addPracticeBlock({ date, startMin, endMin, segmentId })
+    const payload = segmentId
+      ? { date, startMin, endMin, segmentId, label: null }
+      : { date, startMin, endMin, segmentId: null, label }
+    if (id) updatePracticeBlock(id, payload)
+    else addPracticeBlock(payload)
     setDraft(null)
   }
 
@@ -85,7 +89,7 @@ export default function PracticeCalendar() {
     <div>
       <PageHeader
         title="Practice Calendar"
-        subtitle={canEdit ? 'Drag on the grid to schedule a segment run.' : 'What’s being practiced when.'}
+        subtitle={canEdit ? 'Drag on the grid to schedule a segment run — or a note like “watching auditions”.' : 'What’s being practiced when.'}
         actions={
           <>
             <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, -7))}>‹</Button>
@@ -102,33 +106,30 @@ export default function PracticeCalendar() {
       {canEdit && <AutoSchedule />}
 
       <Card className="mb-5">
-        {state.segments.length === 0 ? (
-          <EmptyState
-            icon={<span className="text-lg">📅</span>}
-            title="No segments to schedule"
-            hint="Create segments in Set Design first, then drag time blocks here."
-          />
-        ) : (
-          <div className="p-3">
-            <WeekGrid
-              className="hidden sm:block"
-              weekISO={weekISO}
-              events={events}
-              onDragCreate={canEdit
-                ? (day, startMin, endMin) =>
-                    setDraft({ day, startMin, endMin, segmentId: state.segments[0]?.id ?? '' })
-                : undefined}
-            />
-            <WeekAgenda
-              className="sm:hidden"
-              weekISO={weekISO}
-              events={events}
-              onAddForDay={canEdit
-                ? (day) => setDraft({ day, startMin: 18 * 60, endMin: 19 * 60, segmentId: state.segments[0]?.id ?? '' })
-                : undefined}
-            />
-          </div>
+        {canEdit && state.segments.length === 0 && (
+          <p className="px-4 pt-4 -mb-1 text-xs text-muted">
+            No segments yet — you can still block out time with a note (e.g. “watching auditions”). Create segments in Set Design to schedule specific pieces.
+          </p>
         )}
+        <div className="p-3">
+          <WeekGrid
+            className="hidden sm:block"
+            weekISO={weekISO}
+            events={events}
+            onDragCreate={canEdit
+              ? (day, startMin, endMin) =>
+                  setDraft({ day, startMin, endMin, segmentId: state.segments[0]?.id ?? '', label: '' })
+              : undefined}
+          />
+          <WeekAgenda
+            className="sm:hidden"
+            weekISO={weekISO}
+            events={events}
+            onAddForDay={canEdit
+              ? (day) => setDraft({ day, startMin: 18 * 60, endMin: 19 * 60, segmentId: state.segments[0]?.id ?? '', label: '' })
+              : undefined}
+          />
+        </div>
       </Card>
 
       {canEdit && <Tracker segIndex={segIndex} />}
@@ -138,13 +139,24 @@ export default function PracticeCalendar() {
           title={draft.id ? 'Edit practice block' : 'Schedule practice'}
           onClose={() => setDraft(null)}
         >
-          <Field label="Segment">
+          <Field label="What's being practiced?">
             <Select value={draft.segmentId} onChange={(e) => setDraft({ ...draft, segmentId: e.target.value })}>
+              <option value="">Something else — write a note…</option>
               {state.segments.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </Select>
           </Field>
+          {!draft.segmentId && (
+            <Field label="Practice note">
+              <TextInput
+                autoFocus
+                placeholder="e.g. Watching auditions, full run-through, notes session"
+                value={draft.label ?? ''}
+                onChange={(e) => setDraft({ ...draft, label: e.target.value })}
+              />
+            </Field>
+          )}
           <Field label="Day">
             <Select value={draft.day} onChange={(e) => setDraft({ ...draft, day: Number(e.target.value) })}>
               {DAY_NAMES.map((d, i) => (
@@ -172,7 +184,11 @@ export default function PracticeCalendar() {
             ) : <span />}
             <div className="flex gap-2">
               <Button onClick={() => setDraft(null)}>Cancel</Button>
-              <Button variant="primary" onClick={save} disabled={!draft.segmentId || draft.endMin <= draft.startMin}>
+              <Button
+                variant="primary"
+                onClick={save}
+                disabled={(!draft.segmentId && !(draft.label || '').trim()) || draft.endMin <= draft.startMin}
+              >
                 Save
               </Button>
             </div>

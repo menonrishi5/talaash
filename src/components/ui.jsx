@@ -36,9 +36,23 @@ export function Button({ variant = 'secondary', size = 'md', className = '', ...
   }
   return (
     <button
-      className={`inline-flex items-center justify-center gap-1.5 font-medium transition-all duration-150 cursor-pointer active:scale-[.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 ${variants[variant]} ${sizes[size]} ${className}`}
+      className={`inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap transition-all duration-150 cursor-pointer active:scale-[.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 ${variants[variant]} ${sizes[size]} ${className}`}
       {...props}
     />
+  )
+}
+
+// Screen-level header: title + optional subtitle on the left, actions on the
+// right. Stacks vertically on phones so long action rows don't clip.
+export function PageHeader({ title, subtitle, actions }) {
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
+      <div>
+        <h1 className="text-xl font-bold text-ink mb-1">{title}</h1>
+        {subtitle && <p className="text-sm text-muted">{subtitle}</p>}
+      </div>
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    </div>
   )
 }
 
@@ -50,10 +64,10 @@ export function Modal({ title, onClose, children, wide = false }) {
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
       <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={onClose} />
       <div
-        className={`relative bg-surface rounded-2xl border border-line w-full ${wide ? 'max-w-2xl' : 'max-w-md'} max-h-[85vh] flex flex-col`}
+        className={`relative bg-surface border border-line w-full rounded-t-2xl sm:rounded-2xl ${wide ? 'sm:max-w-2xl' : 'sm:max-w-md'} max-h-[90vh] sm:max-h-[85vh] flex flex-col`}
         style={{ boxShadow: 'var(--shadow-lg)' }}
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-line">
@@ -68,7 +82,7 @@ export function Modal({ title, onClose, children, wide = false }) {
             </svg>
           </button>
         </div>
-        <div className="px-5 py-4 overflow-y-auto thin-scroll">{children}</div>
+        <div className="px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4 overflow-y-auto thin-scroll">{children}</div>
       </div>
     </div>
   )
@@ -119,12 +133,12 @@ export function Card({ children, className = '' }) {
 
 export function CardHeader({ title, subtitle, actions }) {
   return (
-    <div className="flex items-start justify-between px-5 pt-4 pb-3">
+    <div className="flex flex-col gap-2 px-5 pt-4 pb-3 sm:flex-row sm:items-start sm:justify-between">
       <div>
         <h2 className="text-sm font-semibold text-ink">{title}</h2>
         {subtitle && <p className="text-xs text-muted mt-0.5">{subtitle}</p>}
       </div>
-      {actions}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   )
 }

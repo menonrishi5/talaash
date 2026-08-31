@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { DAY_SHORT, addDaysISO, fmtDate, minToLabel, toISODate } from '../lib.js'
+import { DAY_SHORT, DAY_NAMES, addDaysISO, fmtDate, minToLabel, toISODate, dayIndexOfISO } from '../lib.js'
 
 // Google-Calendar-style week grid.
 // events: [{ id, day (0=Mon..6=Sun), startMin, endMin, color, title, subtitle, dashed, onClick }]
@@ -39,7 +39,7 @@ function layoutDay(events) {
   })
 }
 
-export default function WeekGrid({ weekISO, events, onDragCreate }) {
+export default function WeekGrid({ weekISO, events, onDragCreate, className = '' }) {
   // Drag state lives in a ref (read by event handlers, which can fire several
   // times between renders) and is mirrored to state for the preview render.
   const dragRef = useRef(null)
@@ -79,7 +79,7 @@ export default function WeekGrid({ weekISO, events, onDragCreate }) {
   }
 
   return (
-    <div className="overflow-x-auto thin-scroll">
+    <div className={`overflow-x-auto thin-scroll ${className}`}>
       <div className="min-w-[860px]">
         {/* Day headers */}
         <div className="grid" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
@@ -195,6 +195,81 @@ export default function WeekGrid({ weekISO, events, onDragCreate }) {
           })}
         </div>
       </div>
+    </div>
+  )
+}
+
+// Phone-friendly single-day view of the same events. Shows one day at a time
+// with a prev/next stepper; tapping an event fires its onClick. Optional
+// onAddForDay(day) renders an "add" button under the list.
+export function WeekAgenda({ weekISO, events, onAddForDay, className = '' }) {
+  const todayISO = toISODate(new Date())
+  const todayIdx = dayIndexOfISO(todayISO)
+  const weekHasToday = addDaysISO(todayISO, -todayIdx) === weekISO
+  const [dayIdx, setDayIdx] = useState(weekHasToday ? todayIdx : 0)
+
+  const dateISO = addDaysISO(weekISO, dayIdx)
+  const dayEvents = events
+    .filter((ev) => ev.day === dayIdx)
+    .sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin)
+
+  return (
+    <div className={className}>
+      <div className="flex items-center justify-between mb-3">
+        <button
+          onClick={() => setDayIdx((d) => (d + 6) % 7)}
+          className="p-2 -ml-2 rounded-lg text-muted hover:bg-subtle hover:text-ink cursor-pointer"
+          aria-label="Previous day"
+        >‹</button>
+        <div className="text-center">
+          <div className={`text-sm font-semibold ${dateISO === todayISO ? 'text-accent' : 'text-ink'}`}>
+            {DAY_NAMES[dayIdx]}
+          </div>
+          <div className="text-[11px] text-faint">{fmtDate(dateISO, { month: 'short', day: 'numeric' })}</div>
+        </div>
+        <button
+          onClick={() => setDayIdx((d) => (d + 1) % 7)}
+          className="p-2 -mr-2 rounded-lg text-muted hover:bg-subtle hover:text-ink cursor-pointer"
+          aria-label="Next day"
+        >›</button>
+      </div>
+
+      {dayEvents.length === 0 ? (
+        <p className="text-sm text-faint italic text-center py-6">Nothing scheduled.</p>
+      ) : (
+        <ul className="space-y-2">
+          {dayEvents.map((ev) => (
+            <li key={ev.id}>
+              <button
+                onClick={ev.onClick}
+                disabled={!ev.onClick}
+                className="w-full text-left rounded-xl border border-line px-3 py-2.5 flex items-start gap-3 disabled:cursor-default enabled:cursor-pointer enabled:hover:border-line-strong transition-colors"
+                style={ev.warn ? { boxShadow: 'inset 0 0 0 2px var(--bad)' } : undefined}
+              >
+                <span className="w-2.5 h-2.5 rounded-full mt-1 shrink-0" style={{ background: ev.color }} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-ink truncate">
+                    {ev.warn && '⚠ '}{ev.title}
+                  </span>
+                  {ev.subtitle && <span className="block text-xs text-muted truncate">{ev.subtitle}</span>}
+                  <span className="block text-xs text-faint">
+                    {minToLabel(ev.startMin)} – {minToLabel(ev.endMin)}
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {onAddForDay && (
+        <button
+          onClick={() => onAddForDay(dayIdx)}
+          className="mt-3 w-full rounded-xl border border-dashed border-line-strong py-2.5 text-sm font-medium text-muted hover:text-ink hover:border-faint cursor-pointer transition-colors"
+        >
+          ＋ Add block
+        </button>
+      )}
     </div>
   )
 }

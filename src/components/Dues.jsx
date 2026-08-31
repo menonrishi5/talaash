@@ -4,7 +4,7 @@ import { useAuth } from '../auth.jsx'
 import { supabase } from '../supabase.js'
 import { uid } from '../lib.js'
 import { buildMatcher, buyerKey, buyerName, isActive } from '../matching.js'
-import { Button, Card, CardHeader, Modal, Badge, Select, EmptyState, ViewToggle, inputCls } from './ui.jsx'
+import { Button, Card, CardHeader, Modal, Badge, Select, EmptyState, ViewToggle, PageHeader, inputCls } from './ui.jsx'
 import VenmoTab from './Venmo.jsx'
 
 // Dues tracker driven by the Zeffy payment mirror — the app version of the
@@ -248,26 +248,24 @@ function DuesAdmin() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-ink mb-1">Dues & Payments</h1>
-          <p className="text-sm text-muted">
-            Live from Zeffy — {succeeded.length} payments mirrored{payments?.[0] ? `, newest ${new Date(payments[0].created).toLocaleDateString()}` : ''}.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => setCampaignsOpen(true)}>
-            Campaigns ({campaigns.length - campaigns.filter((c) => excluded[c.id]).length}/{campaigns.length})
-          </Button>
-          {canEdit && <Button size="sm" onClick={() => setSetupOpen(true)}>Fee categories</Button>}
-          <Button size="sm" variant="primary" disabled={syncing} onClick={sync}>
-            {syncing ? 'Syncing…' : '↻ Sync Zeffy'}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Dues & Payments"
+        subtitle={`Live from Zeffy — ${succeeded.length} payments mirrored${payments?.[0] ? `, newest ${new Date(payments[0].created).toLocaleDateString()}` : ''}.`}
+        actions={
+          <>
+            <Button size="sm" onClick={() => setCampaignsOpen(true)}>
+              Campaigns ({campaigns.length - campaigns.filter((c) => excluded[c.id]).length}/{campaigns.length})
+            </Button>
+            {canEdit && <Button size="sm" onClick={() => setSetupOpen(true)}>Fee categories</Button>}
+            <Button size="sm" variant="primary" disabled={syncing} onClick={sync}>
+              {syncing ? 'Syncing…' : '↻ Sync Zeffy'}
+            </Button>
+          </>
+        }
+      />
 
       {/* Sub-tabs */}
-      <div className="flex gap-1.5 mb-5">
+      <div className="flex flex-wrap gap-1.5 mb-5">
         {[
           ['grid', "Who's paid"],
           ['payments', `Zeffy payments (${succeeded.length})`],
@@ -1070,10 +1068,7 @@ function MyDues() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-xl font-bold text-ink mb-1">My Dues</h1>
-        <p className="text-sm text-muted">Only you (and the board) can see this.</p>
-      </div>
+      <PageHeader title="My Dues" subtitle="Only you (and the board) can see this." />
 
       <Card className="mb-5">
         <div className="px-5 py-5 flex items-center gap-6 flex-wrap">

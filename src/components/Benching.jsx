@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { supabase, SUPABASE_URL } from '../supabase.js'
-import WeekGrid from './WeekGrid.jsx'
+import WeekGrid, { WeekAgenda } from './WeekGrid.jsx'
 import {
   uid, weekStartISO, addDaysISO, fmtWeekRange, minToLabel, durationLabel,
   DAY_NAMES, parseBenchingSheet, toISODate,
 } from '../lib.js'
 import { isActive } from '../matching.js'
-import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, inputCls } from './ui.jsx'
+import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, PageHeader, inputCls } from './ui.jsx'
 
 const STATUS_META = {
   pending: { label: 'Awaiting response', color: '#a1a1aa', badge: 'bg-subtle text-muted' },
@@ -105,21 +105,21 @@ export default function Benching() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-ink mb-1">Benching</h1>
-          <p className="text-sm text-muted">Room reservations — who's holding the space, and when.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => setStatsOpen(true)}>Hour tracker</Button>
-          {canEdit && (
-            <>
-              <Button size="sm" onClick={() => setImportOpen(true)}>Import sheet</Button>
-              <Button size="sm" variant="primary" onClick={() => setSlotModal('new')}>+ Add slot</Button>
-            </>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="Benching"
+        subtitle="Room reservations — who's holding the space, and when."
+        actions={
+          <>
+            <Button size="sm" onClick={() => setStatsOpen(true)}>Hour tracker</Button>
+            {canEdit && (
+              <>
+                <Button size="sm" onClick={() => setImportOpen(true)}>Import sheet</Button>
+                <Button size="sm" variant="primary" onClick={() => setSlotModal('new')}>+ Add slot</Button>
+              </>
+            )}
+          </>
+        }
+      />
 
       {memberId ? (
         <MyBenching responses={responses} onChanged={loadResponses} />
@@ -200,7 +200,7 @@ export default function Benching() {
 
       {/* Week grid */}
       <Card className="mb-5">
-        <div className="flex items-center justify-between px-5 pt-4">
+        <div className="flex flex-col gap-2 px-5 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-1.5 text-[11px] text-muted flex-wrap">
             {Object.entries(STATUS_META).map(([k, v]) => (
               <span key={k} className="inline-flex items-center gap-1 mr-2">
@@ -209,11 +209,11 @@ export default function Benching() {
               </span>
             ))}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, -7))}>‹</Button>
             <Button size="sm" onClick={() => setWeekISO(weekStartISO())}>Today</Button>
             <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, 7))}>›</Button>
-            <span className="text-sm font-semibold text-ink w-36 text-right">{fmtWeekRange(weekISO)}</span>
+            <span className="text-sm font-semibold text-ink whitespace-nowrap">{fmtWeekRange(weekISO)}</span>
           </div>
         </div>
         {benching.template.length === 0 ? (
@@ -232,7 +232,8 @@ export default function Benching() {
           />
         ) : (
           <div className="p-3">
-            <WeekGrid weekISO={weekISO} events={events} />
+            <WeekGrid className="hidden sm:block" weekISO={weekISO} events={events} />
+            <WeekAgenda className="sm:hidden" weekISO={weekISO} events={events} />
           </div>
         )}
       </Card>
@@ -410,7 +411,7 @@ function CalendarSubscribe() {
         subtitle="Practices and your benching slots, auto-updating in Google or Apple Calendar."
       />
       <div className="px-5 pb-5 flex items-center gap-2 flex-wrap">
-        <code className="flex-1 min-w-64 text-xs bg-subtle border border-line rounded-lg px-3 py-2 truncate" title={base}>
+        <code className="flex-1 min-w-0 text-xs bg-subtle border border-line rounded-lg px-3 py-2 truncate" title={base}>
           {base}
         </code>
         <Button size="sm" onClick={() => { navigator.clipboard.writeText(base); setCopied(true); setTimeout(() => setCopied(false), 2000) }}>

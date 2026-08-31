@@ -5,7 +5,7 @@ import { supabase } from '../supabase.js'
 import { uid } from '../lib.js'
 import { putReceipt, receiptURL } from '../fileStore.js'
 import { memberOwedCents } from '../duesMath.js'
-import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, inputCls } from './ui.jsx'
+import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, PageHeader, inputCls } from './ui.jsx'
 
 const cents = (c) => `$${(c / 100) % 1 ? (c / 100).toFixed(2) : c / 100}`
 
@@ -97,13 +97,10 @@ export default function Reimbursements() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-xl font-bold text-ink mb-1">Reimbursements</h1>
-        <p className="text-sm text-muted">
-          Spent your own money on the team? Submit it here. Approved amounts offset your dues
-          first; anything left is paid back to you.
-        </p>
-      </div>
+      <PageHeader
+        title="Reimbursements"
+        subtitle="Spent your own money on the team? Submit it here. Approved amounts offset your dues first; anything left is paid back to you."
+      />
 
       <SubmitCard onSubmitted={load} />
 

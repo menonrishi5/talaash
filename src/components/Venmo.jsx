@@ -275,7 +275,7 @@ export default function VenmoTab() {
         <CardHeader
           title={`Transactions (${visible.length})`}
           actions={
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Select className="!w-32 !py-1.5" value={dirFilter} onChange={(e) => setDirFilter(e.target.value)}>
                 <option value="out">Money out</option>
                 <option value="in">Money in</option>

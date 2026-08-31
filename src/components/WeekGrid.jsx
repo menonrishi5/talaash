@@ -7,7 +7,7 @@ import { DAY_SHORT, DAY_NAMES, addDaysISO, fmtDate, minToLabel, toISODate, dayIn
 
 const START_HOUR = 8
 const END_HOUR = 24
-const PX_PER_30 = 26
+const PX_PER_30 = 30
 const SNAP = 30
 
 const minY = (min) => ((min - START_HOUR * 60) / 30) * PX_PER_30
@@ -46,7 +46,11 @@ export default function WeekGrid({ weekISO, events, onDragCreate, className = ''
   const [drag, setDragState] = useState(null) // {day, anchorMin, startMin, endMin}
   const setDrag = (d) => { dragRef.current = d; setDragState(d) }
   const colRefs = useRef({})
-  const todayISO = toISODate(new Date())
+  const now = new Date()
+  const todayISO = toISODate(now)
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  const todayCol = DAY_SHORT.findIndex((_, i) => addDaysISO(weekISO, i) === todayISO)
+  const showNowLine = todayCol >= 0 && nowMin >= START_HOUR * 60 && nowMin <= END_HOUR * 60
 
   const hours = []
   for (let h = START_HOUR; h < END_HOUR; h++) hours.push(h)
@@ -82,13 +86,16 @@ export default function WeekGrid({ weekISO, events, onDragCreate, className = ''
     <div className={`overflow-x-auto thin-scroll ${className}`}>
       <div className="min-w-[860px]">
         {/* Day headers */}
-        <div className="grid" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
-          <div />
+        <div
+          className="grid md:sticky md:top-0 z-20"
+          style={{ gridTemplateColumns: '56px repeat(7, 1fr)', background: 'var(--surface)' }}
+        >
+          <div className="border-b border-line" />
           {DAY_SHORT.map((d, i) => {
             const iso = addDaysISO(weekISO, i)
             const isToday = iso === todayISO
             return (
-              <div key={d} className="px-2 py-2 text-center border-b border-line">
+              <div key={d} className={`px-2 py-2 text-center border-b border-line ${isToday ? 'bg-accent/5' : ''}`}>
                 <div className={`text-[11px] font-medium uppercase tracking-wide ${isToday ? 'text-ink' : 'text-faint'}`}>
                   {d}
                 </div>
@@ -125,7 +132,7 @@ export default function WeekGrid({ weekISO, events, onDragCreate, className = ''
               <div
                 key={day}
                 ref={(el) => (colRefs.current[day] = el)}
-                className={`relative border-l border-line ${onDragCreate ? 'cursor-crosshair' : ''}`}
+                className={`relative border-l border-line ${day === todayCol ? 'bg-accent/5' : ''} ${onDragCreate ? 'cursor-crosshair' : ''}`}
                 style={{ height: totalHeight }}
                 onPointerDown={(e) => startDrag(day, e)}
                 onPointerMove={moveDrag}
@@ -138,6 +145,17 @@ export default function WeekGrid({ weekISO, events, onDragCreate, className = ''
                     style={{ top: minY(h * 60) }}
                   />
                 ))}
+
+                {/* current-time indicator */}
+                {showNowLine && day === todayCol && (
+                  <div
+                    className="absolute inset-x-0 z-10 pointer-events-none flex items-center"
+                    style={{ top: minY(nowMin) }}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full -ml-0.5" style={{ background: 'var(--bad)' }} />
+                    <span className="flex-1 h-px" style={{ background: 'var(--bad)' }} />
+                  </div>
+                )}
 
                 {dayEvents.map(({ ev, lane, laneCount }) => (
                   <div

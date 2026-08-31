@@ -88,9 +88,9 @@ export function Modal({ title, onClose, children, wide = false }) {
   )
 }
 
-export function Field({ label, children }) {
+export function Field({ label, children, className = '' }) {
   return (
-    <label className="block mb-3">
+    <label className={`block mb-3 ${className}`}>
       <span className="block text-xs font-medium text-muted mb-1">{label}</span>
       {children}
     </label>

@@ -131,7 +131,7 @@ export default function PracticeCalendar() {
         )}
       </Card>
 
-      <Tracker segIndex={segIndex} />
+      {canEdit && <Tracker segIndex={segIndex} />}
 
       {draft && (
         <Modal

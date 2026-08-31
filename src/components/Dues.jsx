@@ -15,6 +15,22 @@ import VenmoTab from './Venmo.jsx'
 
 const cents = (c) => `$${(c / 100) % 1 ? (c / 100).toFixed(2) : c / 100}`
 const catId = (c) => c.id ?? c.rateId
+
+// Public Zeffy ticketing page where members actually pay their dues.
+const ZEFFY_URL = 'https://www.zeffy.com/en-US/ticketing/talaash--80'
+
+function ZeffyButton({ size = 'md', variant = 'primary', className = '' }) {
+  return (
+    <Button
+      size={size}
+      variant={variant}
+      className={className}
+      onClick={() => window.open(ZEFFY_URL, '_blank', 'noopener')}
+    >
+      Pay dues on Zeffy ↗
+    </Button>
+  )
+}
 const isFineCandidate = (p) => JSON.stringify(p.raw ?? '').toLowerCase().includes('fine')
 
 export default function Dues() {
@@ -253,6 +269,7 @@ function DuesAdmin() {
         subtitle={`Live from Zeffy — ${succeeded.length} payments mirrored${payments?.[0] ? `, newest ${new Date(payments[0].created).toLocaleDateString()}` : ''}.`}
         actions={
           <>
+            <ZeffyButton size="sm" variant="secondary" />
             <Button size="sm" onClick={() => setCampaignsOpen(true)}>
               Campaigns ({campaigns.length - campaigns.filter((c) => excluded[c.id]).length}/{campaigns.length})
             </Button>
@@ -1002,12 +1019,12 @@ function MyDues() {
   if (!info.linked) {
     return (
       <div>
-        <h1 className="text-xl font-bold text-ink mb-1">My Dues</h1>
+        <PageHeader title="My Dues" actions={<ZeffyButton />} />
         <Card className="mt-4">
           <EmptyState
             icon={<span className="text-lg">🔗</span>}
             title="Your account isn't linked to a roster member yet"
-            hint="Ask a board member to link it (Roster → App access) — then your payments and what you owe show up here."
+            hint="Ask a board member to link it (Roster → App access) — then your payments and what you owe show up here. You can still pay your dues on Zeffy using the button above."
           />
         </Card>
       </div>
@@ -1068,7 +1085,11 @@ function MyDues() {
 
   return (
     <div>
-      <PageHeader title="My Dues" subtitle="Only you (and the board) can see this." />
+      <PageHeader
+        title="My Dues"
+        subtitle="Only you (and the board) can see this."
+        actions={<ZeffyButton />}
+      />
 
       <Card className="mb-5">
         <div className="px-5 py-5 flex items-center gap-6 flex-wrap">
@@ -1090,6 +1111,11 @@ function MyDues() {
               {lateFinesTotal > 0 && <span className="block text-warn">+ {cents(lateFinesTotal)} late-payment fines</span>}
               {donationCredit > 0 && <span className="block">− {cents(donationCredit)} donation credit</span>}
               {reimbCredit > 0 && <span className="block">− {cents(reimbCredit)} reimbursement credit</span>}
+            </div>
+          )}
+          {net > 0 && (
+            <div className="w-full sm:w-auto sm:ml-auto">
+              <ZeffyButton className="w-full sm:w-auto" />
             </div>
           )}
         </div>

@@ -143,7 +143,7 @@ export default function Roster() {
           </div>
         </Card>
 
-        <TeamAccess />
+        {canEdit && <TeamAccess />}
       </div>
     </div>
   )

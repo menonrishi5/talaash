@@ -785,9 +785,10 @@ function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
 }
 
 // Roster-wide benching hour totals across every confirmed week.
+// Editors see everyone; members see just their own progress vs the requirement.
 function StatsModal({ onClose }) {
   const { state, setBenching } = useStore()
-  const { canEdit } = useAuth()
+  const { canEdit, memberId } = useAuth()
   const threshold = state.benching.threshold ?? 15
 
   const stats = useMemo(() => {
@@ -817,6 +818,48 @@ function StatsModal({ onClose }) {
     })
     .sort((a, b) => b.total - a.total)
 
+  // Members only see their own number and the requirement.
+  if (!canEdit) {
+    const s = stats[memberId] || { primary: 0, reserve: 0, cover: 0 }
+    const totalMin = s.primary + s.reserve + s.cover
+    const totalH = totalMin / 60
+    const pct = threshold > 0 ? Math.min((totalH / threshold) * 100, 100) : 100
+    const met = totalH >= threshold
+    return (
+      <Modal title="My benching hours" onClose={onClose}>
+        {!memberId ? (
+          <p className="text-sm text-muted">
+            Your account isn’t linked to a roster member yet — ask a board member to link it
+            (Roster → App access) and your hours will show up here.
+          </p>
+        ) : (
+          <>
+            <div className="text-center py-2">
+              <div className="text-4xl font-black text-ink">
+                {durationLabel(totalMin)}
+                <span className="text-lg font-semibold text-faint"> / {threshold}h</span>
+              </div>
+              <div className="mt-1 text-xs text-muted">confirmed benching hours this season</div>
+            </div>
+            <div className="h-2.5 rounded-full bg-subtle overflow-hidden my-3">
+              <div className={`h-full rounded-full ${met ? 'bg-good' : 'bg-accent'}`} style={{ width: `${pct}%` }} />
+            </div>
+            <p className="text-center text-sm">
+              {met
+                ? <span className="text-good font-semibold">✓ Requirement met</span>
+                : <span className="text-muted">{Math.max(threshold - totalH, 0).toFixed(1)} h left to reach the {threshold}h requirement</span>}
+            </p>
+            {totalMin > 0 && (
+              <p className="mt-3 text-[11px] text-faint text-center">
+                {durationLabel(s.primary)} normal · {durationLabel(s.reserve)} reserve · {durationLabel(s.cover)} cover
+              </p>
+            )}
+          </>
+        )}
+      </Modal>
+    )
+  }
+
   return (
     <Modal title="Benching hour tracker" onClose={onClose} wide>
       <div className="flex items-center gap-2 mb-4">
@@ -824,8 +867,7 @@ function StatsModal({ onClose }) {
         <input
           type="number"
           min="0"
-          disabled={!canEdit}
-          className="w-20 px-2 py-1 text-sm border border-line-strong rounded-lg disabled:bg-subtle"
+          className="w-20 px-2 py-1 text-sm border border-line-strong rounded-lg"
           value={threshold}
           onChange={(e) => setBenching({ threshold: Number(e.target.value) || 0 })}
         />
@@ -834,7 +876,8 @@ function StatsModal({ onClose }) {
       {rows.length === 0 ? (
         <p className="text-sm text-faint italic">Roster is empty.</p>
       ) : (
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto thin-scroll">
+        <table className="w-full text-sm min-w-[420px]">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-faint">
               <th className="pb-2 pr-3 font-medium">Member</th>
@@ -874,6 +917,7 @@ function StatsModal({ onClose }) {
             })}
           </tbody>
         </table>
+        </div>
       )}
     </Modal>
   )

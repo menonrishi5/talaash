@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { DAY_SHORT, DAY_NAMES, addDaysISO, fmtDate, minToLabel, toISODate, dayIndexOfISO } from '../lib.js'
 
 // Google-Calendar-style week grid.
@@ -217,19 +217,39 @@ export default function WeekGrid({ weekISO, events, onDragCreate, className = ''
   )
 }
 
-// Phone-friendly single-day view of the same events. Shows one day at a time
-// with a prev/next stepper; tapping an event fires its onClick. Optional
-// onAddForDay(day) renders an "add" button under the list.
+// Phone-friendly single-day view: the same time grid as the week view, but one
+// day wide with a prev/next stepper. Tapping an event fires its onClick;
+// optional onAddForDay(day) renders an "add" button under the grid.
 export function WeekAgenda({ weekISO, events, onAddForDay, className = '' }) {
-  const todayISO = toISODate(new Date())
+  const now = new Date()
+  const todayISO = toISODate(now)
+  const nowMin = now.getHours() * 60 + now.getMinutes()
   const todayIdx = dayIndexOfISO(todayISO)
   const weekHasToday = addDaysISO(todayISO, -todayIdx) === weekISO
   const [dayIdx, setDayIdx] = useState(weekHasToday ? todayIdx : 0)
+  const scrollRef = useRef(null)
 
   const dateISO = addDaysISO(weekISO, dayIdx)
-  const dayEvents = events
-    .filter((ev) => ev.day === dayIdx)
-    .sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin)
+  const isToday = dateISO === todayISO
+  const dayEvents = layoutDay(events.filter((ev) => ev.day === dayIdx))
+
+  const hours = []
+  for (let h = START_HOUR; h < END_HOUR; h++) hours.push(h)
+
+  // On day change, open scrolled to the evening (practices run after 7 PM),
+  // pulled up to the earliest event or to "now" when it's today. Doesn't fire
+  // on later re-renders, so it won't fight a manual scroll.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const earliest = events
+      .filter((ev) => ev.day === dayIdx)
+      .reduce((m, ev) => Math.min(m, ev.startMin), 17 * 60)
+    let target = Math.min(earliest - 60, 17 * 60)
+    if (isToday) target = Math.min(target, nowMin - 90)
+    el.scrollTop = Math.max(0, minY(Math.max(target, START_HOUR * 60)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayIdx, weekISO])
 
   return (
     <div className={className}>
@@ -240,7 +260,7 @@ export function WeekAgenda({ weekISO, events, onAddForDay, className = '' }) {
           aria-label="Previous day"
         >‹</button>
         <div className="text-center">
-          <div className={`text-sm font-semibold ${dateISO === todayISO ? 'text-accent' : 'text-ink'}`}>
+          <div className={`text-sm font-semibold ${isToday ? 'text-accent' : 'text-ink'}`}>
             {DAY_NAMES[dayIdx]}
           </div>
           <div className="text-[11px] text-faint">{fmtDate(dateISO, { month: 'short', day: 'numeric' })}</div>
@@ -252,33 +272,74 @@ export function WeekAgenda({ weekISO, events, onAddForDay, className = '' }) {
         >›</button>
       </div>
 
-      {dayEvents.length === 0 ? (
-        <p className="text-sm text-faint italic text-center py-6">Nothing scheduled.</p>
-      ) : (
-        <ul className="space-y-2">
-          {dayEvents.map((ev) => (
-            <li key={ev.id}>
+      <div
+        ref={scrollRef}
+        className="overflow-y-auto thin-scroll rounded-xl border border-line"
+        style={{ maxHeight: 440 }}
+      >
+        <div className="grid" style={{ gridTemplateColumns: '48px 1fr', height: totalHeight }}>
+          {/* time gutter */}
+          <div className="relative">
+            {hours.map((h) => (
+              <div
+                key={h}
+                className="absolute right-2 -translate-y-1/2 text-[10px] text-faint"
+                style={{ top: minY(h * 60) }}
+              >
+                {h === 12 ? '12 PM' : h > 12 ? `${h - 12} PM` : `${h} AM`}
+              </div>
+            ))}
+          </div>
+
+          {/* day column */}
+          <div className="relative border-l border-line">
+            {hours.map((h) => (
+              <div
+                key={h}
+                className="absolute inset-x-0 border-t border-line"
+                style={{ top: minY(h * 60) }}
+              />
+            ))}
+
+            {isToday && nowMin >= START_HOUR * 60 && nowMin <= END_HOUR * 60 && (
+              <div
+                className="absolute inset-x-0 z-10 flex items-center pointer-events-none"
+                style={{ top: minY(nowMin) }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full -ml-0.5" style={{ background: 'var(--bad)' }} />
+                <span className="flex-1 h-px" style={{ background: 'var(--bad)' }} />
+              </div>
+            )}
+
+            {dayEvents.map(({ ev, lane, laneCount }) => (
               <button
+                key={ev.id}
                 onClick={ev.onClick}
                 disabled={!ev.onClick}
-                className="w-full text-left rounded-xl border border-line px-3 py-2.5 flex items-start gap-3 disabled:cursor-default enabled:cursor-pointer enabled:hover:border-line-strong transition-colors"
-                style={ev.warn ? { boxShadow: 'inset 0 0 0 2px var(--bad)' } : undefined}
+                aria-label={`${ev.title}, ${minToLabel(ev.startMin)} to ${minToLabel(ev.endMin)}`}
+                className={`absolute rounded-lg px-2 py-1 text-[11px] leading-tight overflow-hidden text-left enabled:cursor-pointer ${
+                  ev.dashed ? 'border-2 border-dashed' : 'text-white shadow-sm'
+                }`}
+                style={{
+                  top: minY(ev.startMin) + 1,
+                  height: Math.max(minY(ev.endMin) - minY(ev.startMin) - 2, 20),
+                  left: `calc(${(lane / laneCount) * 100}% + 2px)`,
+                  width: `calc(${(1 / laneCount) * 100}% - 4px)`,
+                  background: ev.dashed ? 'var(--surface)' : ev.color,
+                  borderColor: ev.dashed ? ev.color : undefined,
+                  color: ev.dashed ? ev.color : undefined,
+                  boxShadow: ev.warn ? 'inset 0 0 0 2px var(--bad)' : undefined,
+                }}
               >
-                <span className="w-2.5 h-2.5 rounded-full mt-1 shrink-0" style={{ background: ev.color }} />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold text-ink truncate">
-                    {ev.warn && '⚠ '}{ev.title}
-                  </span>
-                  {ev.subtitle && <span className="block text-xs text-muted truncate">{ev.subtitle}</span>}
-                  <span className="block text-xs text-faint">
-                    {minToLabel(ev.startMin)} – {minToLabel(ev.endMin)}
-                  </span>
-                </span>
+                {ev.warn && <span className="absolute top-0.5 right-0.5 text-[10px] leading-none">⚠️</span>}
+                <div className="font-semibold truncate">{ev.title}</div>
+                {ev.subtitle && <div className="truncate opacity-90">{ev.subtitle}</div>}
+                <div className="opacity-75">{minToLabel(ev.startMin)} – {minToLabel(ev.endMin)}</div>
               </button>
-            </li>
-          ))}
-        </ul>
-      )}
+            ))}
+          </div>
+        </div>
+      </div>
 
       {onAddForDay && (
         <button

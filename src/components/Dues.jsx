@@ -1113,11 +1113,6 @@ function MyDues() {
               {reimbCredit > 0 && <span className="block">− {cents(reimbCredit)} reimbursement credit</span>}
             </div>
           )}
-          {net > 0 && (
-            <div className="w-full sm:w-auto sm:ml-auto">
-              <ZeffyButton className="w-full sm:w-auto" />
-            </div>
-          )}
         </div>
       </Card>
 

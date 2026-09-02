@@ -8,6 +8,12 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
+const cors = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
 const TZ = "America/Chicago";
 const APP_URL = "https://talaash-five.vercel.app/";
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -49,6 +55,8 @@ async function slack(method: string, params: Record<string, unknown>) {
 }
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+
   try {
     if (!Deno.env.get("SLACK_BOT_TOKEN")) throw new Error("SLACK_BOT_TOKEN not set");
     const supabase = createClient(
@@ -160,13 +168,13 @@ Deno.serve(async (req) => {
     return json({ ok: true, results });
   } catch (e) {
     return new Response(JSON.stringify({ ok: false, error: String(e) }), {
-      status: 500, headers: { "Content-Type": "application/json" },
+      status: 500, headers: { ...cors, "Content-Type": "application/json" },
     });
   }
 });
 
 function json(o: unknown) {
-  return new Response(JSON.stringify(o), { headers: { "Content-Type": "application/json" } });
+  return new Response(JSON.stringify(o), { headers: { ...cors, "Content-Type": "application/json" } });
 }
 async function logOnce(supabase: any, occ: string, kind: string, detail: string) {
   await supabase.from("notification_log").upsert(

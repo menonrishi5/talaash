@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { teamParts } from './lib.js'
 
 // The anon key is designed to be public (it ships to every visitor's browser);
 // access control lives in the database's row-level security policies.
@@ -12,7 +13,8 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 export const TEAM_TZ = 'America/Chicago'
 
 export function todayTeamISO() {
-  return new Date().toLocaleDateString('en-CA', { timeZone: TEAM_TZ })
+  // Intl parts, not a locale-formatted string — see teamParts in lib.js.
+  return teamParts().iso
 }
 
 export function fmtTeamTime(ts) {

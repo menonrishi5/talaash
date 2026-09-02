@@ -7,16 +7,34 @@ export const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 const TEAM_TZ = 'America/Chicago'
 
+// Wall-clock fields for a Date in the team's timezone. Built from Intl parts
+// (not a formatted string), so it doesn't depend on the browser's locale
+// producing ISO dates — some locales return "9/2/2026" from en-CA, which broke
+// every date derived from teamNow (schedule matching, check-in dates, …).
+export function teamParts(at = new Date()) {
+  const p = {}
+  for (const { type, value } of new Intl.DateTimeFormat('en-US', {
+    timeZone: TEAM_TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(at)) {
+    p[type] = value
+  }
+  const year = +p.year
+  const month = +p.month
+  const dayOfMonth = +p.day
+  const hour = +p.hour % 24 // some engines emit "24" for midnight
+  const minute = +p.minute
+  const iso = `${p.year}-${p.month}-${p.day}`
+  // 0=Sun..6=Sat from a UTC date built off the y/m/d, shifted to Mon=0.
+  const dow = (new Date(Date.UTC(year, month - 1, dayOfMonth)).getUTCDay() + 6) % 7
+  return { iso, year, month, dayOfMonth, hour, minute, min: hour * 60 + minute, day: dow }
+}
+
 // Current time in the team's timezone: { iso 'YYYY-MM-DD', min (since midnight), day 0-6 Mon=0 }.
 export function teamNow() {
-  const now = new Date()
-  const iso = now.toLocaleDateString('en-CA', { timeZone: TEAM_TZ })
-  const [h, m] = now
-    .toLocaleTimeString('en-GB', { timeZone: TEAM_TZ, hour12: false, hour: '2-digit', minute: '2-digit' })
-    .split(':')
-    .map(Number)
-  const day = (new Date(iso + 'T00:00:00').getDay() + 6) % 7 // Mon=0
-  return { iso, min: h * 60 + m, day }
+  const { iso, min, day } = teamParts()
+  return { iso, min, day }
 }
 
 // The soonest upcoming practice from a weekly schedule ([{day,startMin}]),

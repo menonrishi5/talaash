@@ -7,6 +7,10 @@
 -- text to read aloud) and puts it in the check-in URL as `?t=`. The public
 -- check-in page reads it from the URL instead of asking someone to type it.
 
+-- Postgres won't rename a parameter via create-or-replace on the same
+-- signature (uuid, text) — drop first.
+drop function if exists public.check_in(uuid, text);
+
 create or replace function public.check_in(
   p_session uuid,
   p_token text

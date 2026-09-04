@@ -32,6 +32,8 @@ guessing from what the app seems to do.
 | 16 | `migration-16-owner.sql` | Only the owner can grant/revoke editor access (DB-enforced). | ✅ |
 | 17 | `migration-17-availability.sql` | After-7 practice availability (weekly default + per-date override). | ✅ |
 | 18 | `migration-18-checkin-token.sql` | Drops the spoken check-in password for a per-session QR token. | ✅ *(confirmed run 2026-09)* |
+| 19 | `migration-19-rls-tightening.sql` | Locks `profiles` reads to editor-or-self; drops unused direct-write policies on `slot_responses`. | ✅ *(confirmed run 2026-09)* |
+| 20 | `migration-20-cover-requests.sql` | `cover_requests` table + `request_cover()` / `respond_to_cover()` / `cancel_cover_request()` for self-serve benching cover swaps. | ✅ *(confirmed run 2026-09)* |
 
 Everything through #18 is assumed applied because the app is live and
 working end to end on it — **but this file is the first time that's been

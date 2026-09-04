@@ -1,19 +1,22 @@
 import { useEffect, useState } from 'react'
 import { supabase, fmtTeamTime } from '../supabase.js'
 
-// Public check-in page (#/checkin) — what the QR code / Slack link opens.
+// Public check-in page (#/checkin?t=…) — what the QR code / Slack link opens.
 // Check-in is tied to the signed-in account: you check in as yourself, so
-// nobody can tap in a late teammate. The password still proves presence.
+// nobody can tap in a late teammate. The `t` token in the URL is what proves
+// presence — it's minted fresh per session and only ever travels inside the
+// QR/link the board posts at practice, so there's nothing to type or read
+// aloud, and an old screenshot stops working the moment that session ends.
 
 const money = (n) => `$${Number(n) % 1 ? Number(n).toFixed(2) : Number(n)}`
 const APP_URL = () => `${window.location.origin}${window.location.pathname}`
+const getToken = () => new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('t')
 
 export default function CheckIn() {
-  const [phase, setPhase] = useState('loading') // loading | signin | none | closed | unlinked | form | done | error
+  const [phase, setPhase] = useState('loading') // loading | signin | none | closed | unlinked | notoken | form | done | error
   const [authed, setAuthed] = useState(null) // session user
   const [myName, setMyName] = useState(null)
   const [session, setSession] = useState(null)
-  const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [errMsg, setErrMsg] = useState(null)
   const [result, setResult] = useState(null)
@@ -47,6 +50,10 @@ export default function CheckIn() {
         setPhase('closed')
         return
       }
+      if (!getToken()) {
+        setPhase('notoken')
+        return
+      }
       setSession(info.session)
       setPhase('form')
     } catch (e) {
@@ -61,13 +68,13 @@ export default function CheckIn() {
   }, [])
 
   const submit = async () => {
-    if (!password.trim() || busy) return
+    if (busy) return
     setBusy(true)
     setErrMsg(null)
     try {
       const { data, error } = await supabase.rpc('check_in', {
         p_session: session.id,
-        p_password: password,
+        p_token: getToken(),
       })
       if (error) throw error
       if (!data.ok) {
@@ -134,6 +141,16 @@ export default function CheckIn() {
           </Panel>
         )}
 
+        {phase === 'notoken' && (
+          <Panel>
+            <p className="text-3xl text-center mb-2">🔗</p>
+            <p className="text-sm text-muted text-center font-medium">This link is missing today's check-in code.</p>
+            <p className="text-xs text-faint text-center mt-1">
+              Scan the QR posted at practice, or open the link the board shared — don't reuse an old one.
+            </p>
+          </Panel>
+        )}
+
         {phase === 'form' && (
           <Panel>
             <p className="text-sm text-ink mb-4 text-center">
@@ -145,24 +162,12 @@ export default function CheckIn() {
                 not you? switch account
               </button>
             </p>
-            <label className="block mb-4">
-              <span className="block text-xs font-medium text-muted mb-1">Today's password</span>
-              <input
-                className="w-full px-3 py-2.5 text-base bg-surface border border-line-strong rounded-xl focus:outline-none focus:ring-2 focus:ring-accent/30 tracking-widest font-semibold uppercase placeholder:normal-case placeholder:font-normal placeholder:tracking-normal placeholder:text-faint"
-                placeholder="announced at practice"
-                value={password}
-                autoCapitalize="none"
-                autoCorrect="off"
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && submit()}
-              />
-            </label>
 
             {errMsg && <p className="text-sm text-bad mb-3 text-center">{errMsg}</p>}
 
             <button
               onClick={submit}
-              disabled={!password.trim() || busy}
+              disabled={busy}
               className="w-full py-3 rounded-xl bg-accent text-accent-ink font-semibold text-sm hover:bg-accent-strong transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {busy ? 'Checking in…' : `Check in as ${myName}`}

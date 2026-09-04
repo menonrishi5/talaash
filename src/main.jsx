@@ -47,3 +47,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </ThemeProvider>
   </React.StrictMode>,
 )
+
+// Register the no-op service worker so the app is installable (Android/desktop
+// "Install app", iOS "Add to Home Screen"). BASE_URL respects the Vercel-vs-
+// GitHub-Pages base path split in vite.config.js.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {})
+  })
+}

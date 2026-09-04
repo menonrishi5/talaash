@@ -3,7 +3,7 @@ import QRCode from 'qrcode'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { supabase, todayTeamISO, fmtTeamTime } from '../supabase.js'
-import { minToLabel, fmtDate, nextPractice, DAY_NAMES } from '../lib.js'
+import { minToLabel, fmtDate, nextPractice, DAY_NAMES, downloadCSV } from '../lib.js'
 import { isActive, buildMatcher } from '../matching.js'
 import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, ViewToggle, PageHeader, inputCls } from './ui.jsx'
 
@@ -608,14 +608,20 @@ function PendingFineReview({ checkins, excuses, onChanged }) {
 
 // ---- create today's session ----
 
+const SESSION_DEFAULTS = {
+  cutoff_min: 19 * 60,
+  grace_min: 5,
+  tier1_until_min: 30,
+  tier1_amount: 5,
+  tier2_amount: 10,
+  fines_active: true,
+}
+
 function StartSession({ todayISO, onCreated }) {
+  const { state, setSettings } = useStore()
   const [form, setForm] = useState({
-    cutoff_min: 19 * 60,
-    grace_min: 5,
-    tier1_until_min: 30,
-    tier1_amount: 5,
-    tier2_amount: 10,
-    fines_active: true,
+    ...SESSION_DEFAULTS,
+    ...state.settings?.sessionDefaults,
     token: genToken(),
   })
   const [busy, setBusy] = useState(false)
@@ -636,6 +642,9 @@ function StartSession({ todayISO, onCreated }) {
         .from('session_secrets')
         .insert({ session_id: sess.id, password: token })
       if (e2) { setBusy(false); alert('Could not save the check-in token: ' + e2.message); return }
+      // Remember these settings so the next practice pre-fills instead of
+      // resetting to hardcoded defaults.
+      setSettings({ sessionDefaults: sessionFields })
     }
     setBusy(false)
     if (error) {
@@ -1153,11 +1162,31 @@ function History({ todayISO }) {
     })()
   }, [todayISO])
 
+  const exportCSV = async () => {
+    const { data } = await supabase
+      .from('checkins')
+      .select('member_name, checked_at, mins_late, fine, fine_pending, no_show, attendance_sessions(session_date)')
+      .order('checked_at', { ascending: false })
+    downloadCSV(
+      `talaash-attendance-${new Date().toISOString().slice(0, 10)}.csv`,
+      ['Date', 'Member', 'Checked in at', 'Minutes late', 'No-show', 'Fine', 'Fine pending board approval'],
+      (data ?? []).map((c) => [
+        c.attendance_sessions?.session_date ?? '',
+        c.member_name,
+        c.no_show ? '' : fmtTeamTime(c.checked_at),
+        c.mins_late,
+        c.no_show ? 'yes' : '',
+        c.fine,
+        c.fine_pending ? 'yes' : '',
+      ]),
+    )
+  }
+
   if (!rows || rows.length === 0) return null
 
   return (
     <Card>
-      <CardHeader title="Past practices" />
+      <CardHeader title="Past practices" actions={<Button size="sm" onClick={exportCSV}>↓ Export CSV</Button>} />
       <ul className="px-5 pb-5 divide-y divide-line">
         {rows.map((s) => {
           const fines = s.checkins.reduce((n, c) => n + Number(c.fine), 0)

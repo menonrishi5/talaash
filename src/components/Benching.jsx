@@ -30,13 +30,19 @@ export default function Benching() {
   const [statsOpen, setStatsOpen] = useState(false)
   const [locOpen, setLocOpen] = useState(false)
   const [responses, setResponses] = useState([])
+  const [coverRequests, setCoverRequests] = useState([])
 
   const loadResponses = async () => {
     const { data } = await supabase.from('slot_responses').select('*')
     if (data) setResponses(data)
   }
+  const loadCoverRequests = async () => {
+    const { data } = await supabase.from('cover_requests').select('*')
+    if (data) setCoverRequests(data)
+  }
   useEffect(() => {
     loadResponses()
+    loadCoverRequests()
   }, [])
 
   const overrides = benching.weeks[weekISO] || {}
@@ -45,13 +51,21 @@ export default function Benching() {
   const slotStatus = (slot) => overrides[slot.id]?.status ?? 'pending'
   const responseFor = (slotId) =>
     responses.find((r) => r.week_iso === weekISO && r.slot_id === slotId) ?? null
+  // A self-arranged cover a teammate accepted, for this week's slot.
+  const acceptedCoverFor = (slotId) =>
+    coverRequests.find((r) => r.week_iso === weekISO && r.slot_id === slotId && r.status === 'accepted') ?? null
 
   const events = benching.template.map((slot) => {
-    // Editor attendance outcome wins; before that, reflect RSVP state
+    // Editor attendance outcome wins; before that, a self-arranged cover
+    // wins over the default RSVP chain; before that, reflect RSVP state
     // (member accept/decline, then the reserve's answer) live on the grid.
     let status = slotStatus(slot)
     let subtitleOverride = null
-    if (status === 'pending') {
+    const selfCover = status === 'pending' ? acceptedCoverFor(slot.id) : null
+    if (selfCover) {
+      status = 'cover'
+      subtitleOverride = 'covering (arranged)'
+    } else if (status === 'pending') {
       const resp = responseFor(slot.id)
       if (resp?.status === 'accepted') status = 'accepted'
       else if (resp?.status === 'declined' || resp?.reserve_status) {
@@ -70,7 +84,7 @@ export default function Benching() {
     const meta = STATUS_META[status]
     const who =
       status === 'reserve' ? memberName(slot.reserveId)
-      : status === 'cover' ? memberName(ov?.coverMemberId)
+      : status === 'cover' ? memberName(selfCover ? selfCover.to_member_id : ov?.coverMemberId)
       : memberName(slot.memberId)
     return {
       id: slot.id,
@@ -122,7 +136,12 @@ export default function Benching() {
       />
 
       {memberId ? (
-        <MyBenching responses={responses} onChanged={loadResponses} />
+        <MyBenching
+          responses={responses}
+          onChanged={loadResponses}
+          coverRequests={coverRequests}
+          onCoverChanged={loadCoverRequests}
+        />
       ) : canEdit ? (
         <Card className="mb-5">
           <div className="px-5 py-4 text-sm text-muted">
@@ -242,7 +261,7 @@ export default function Benching() {
 
       {importOpen && <ImportModal onClose={() => setImportOpen(false)} />}
       {locOpen && <LocationsModal onClose={() => setLocOpen(false)} />}
-      {statsOpen && <StatsModal onClose={() => setStatsOpen(false)} />}
+      {statsOpen && <StatsModal onClose={() => setStatsOpen(false)} coverRequests={coverRequests} />}
       {slotModal && (
         <SlotModal
           slotId={slotModal === 'new' ? null : slotModal}
@@ -259,12 +278,14 @@ export default function Benching() {
 // The signed-in member's own upcoming slots (this week + next), with
 // accept / decline. Responses drive the Slack reminders and the automatic
 // reserve call-up at the deadline.
-function MyBenching({ responses, onChanged }) {
+function MyBenching({ responses, onChanged, coverRequests = [], onCoverChanged }) {
   const { state } = useStore()
   const { memberId } = useAuth()
   const { benching, settings, roster } = state
   const deadlineH = settings?.benchingAcceptDeadlineHours ?? 12
   const [busy, setBusy] = useState(null) // occurrence key while saving
+  const [pickerFor, setPickerFor] = useState(null) // occurrence key showing the "who covers?" picker
+  const [pickTarget, setPickTarget] = useState('')
 
   const nameOf = (id) => roster.find((m) => m.id === id)?.name ?? '—'
   const now = new Date()
@@ -281,10 +302,17 @@ function MyBenching({ responses, onChanged }) {
       const resp = responses.find((r) => r.week_iso === wkISO && r.slot_id === slot.id) ?? null
       const pastDeadline = now.getTime() > start.getTime() - deadlineH * 3600000
       const reserveOn = resp?.status === 'declined' || (resp?.status !== 'accepted' && pastDeadline && slot.reserveId)
-      occurrences.push({ wkISO, slot, dateISO, start, resp, pastDeadline, reserveOn, mine: slot.memberId === memberId })
+      const outgoing = coverRequests.find((r) => r.week_iso === wkISO && r.slot_id === slot.id && r.from_member_id === memberId && r.status === 'pending') ?? null
+      const acceptedCover = coverRequests.find((r) => r.week_iso === wkISO && r.slot_id === slot.id && r.status === 'accepted') ?? null
+      occurrences.push({ wkISO, slot, dateISO, start, resp, pastDeadline, reserveOn, outgoing, acceptedCover, mine: slot.memberId === memberId })
     }
   }
   occurrences.sort((a, b) => a.start - b.start)
+
+  const incoming = coverRequests
+    .filter((r) => r.to_member_id === memberId && r.status === 'pending')
+    .map((r) => ({ req: r, slot: benching.template.find((s) => s.id === r.slot_id) }))
+    .filter((x) => x.slot)
 
   // Goes through an RPC that validates the caller holds the role, so the
   // reserve can respond too.
@@ -299,7 +327,36 @@ function MyBenching({ responses, onChanged }) {
     else onChanged()
   }
 
+  const sendCoverRequest = async (occ) => {
+    if (!pickTarget) return
+    const key = `${occ.wkISO}:${occ.slot.id}`
+    setBusy(key)
+    const { data, error } = await supabase.rpc('request_cover', {
+      p_week: occ.wkISO, p_slot: occ.slot.id, p_to_member: pickTarget,
+    })
+    setBusy(null)
+    if (error || !data?.ok) alert('Could not send that: ' + (error?.message ?? data?.error))
+    else { setPickerFor(null); setPickTarget(''); onCoverChanged?.() }
+  }
+
+  const cancelCover = async (reqId) => {
+    setBusy(reqId)
+    const { data, error } = await supabase.rpc('cancel_cover_request', { p_request_id: reqId })
+    setBusy(null)
+    if (error || !data?.ok) alert('Could not cancel: ' + (error?.message ?? data?.error))
+    else onCoverChanged?.()
+  }
+
+  const respondToCover = async (reqId, status) => {
+    setBusy(reqId)
+    const { data, error } = await supabase.rpc('respond_to_cover', { p_request_id: reqId, p_status: status })
+    setBusy(null)
+    if (error || !data?.ok) alert('Could not save: ' + (error?.message ?? data?.error))
+    else onCoverChanged?.()
+  }
+
   return (
+    <>
     <Card className="mb-5">
       <CardHeader
         title="My benching"
@@ -313,78 +370,151 @@ function MyBenching({ responses, onChanged }) {
       <ul className="px-5 pb-5 divide-y divide-line">
         {occurrences.map((occ) => {
           const key = `${occ.wkISO}:${occ.slot.id}`
-          return (
-            <li key={key} className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
-              <div className="flex-1 min-w-44">
-                <span className="font-medium text-ink">
-                  {DAY_NAMES[occ.slot.day]} {occ.dateISO.slice(5)} · {minToLabel(occ.slot.startMin)} – {minToLabel(occ.slot.endMin)}
-                </span>
-                {!occ.mine && (
-                  <span className="block text-xs text-faint">
-                    you're the reserve for {nameOf(occ.slot.memberId)}
+          // Someone specific has already agreed to take this one — nothing more to do.
+          if (occ.acceptedCover) {
+            return (
+              <li key={key} className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
+                <div className="flex-1 min-w-44">
+                  <span className="font-medium text-ink">
+                    {DAY_NAMES[occ.slot.day]} {occ.dateISO.slice(5)} · {minToLabel(occ.slot.startMin)} – {minToLabel(occ.slot.endMin)}
                   </span>
+                </div>
+                <Badge className="bg-special-soft text-special">✓ {nameOf(occ.acceptedCover.to_member_id)} is covering</Badge>
+              </li>
+            )
+          }
+          const canArrange = occ.mine && !occ.reserveOn && occ.resp?.status !== 'declined'
+          return (
+            <li key={key} className="py-2.5 text-sm">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex-1 min-w-44">
+                  <span className="font-medium text-ink">
+                    {DAY_NAMES[occ.slot.day]} {occ.dateISO.slice(5)} · {minToLabel(occ.slot.startMin)} – {minToLabel(occ.slot.endMin)}
+                  </span>
+                  {!occ.mine && (
+                    <span className="block text-xs text-faint">
+                      you're the reserve for {nameOf(occ.slot.memberId)}
+                    </span>
+                  )}
+                </div>
+
+                {occ.outgoing ? (
+                  <>
+                    <Badge className="bg-subtle text-muted">asked {nameOf(occ.outgoing.to_member_id)} — pending</Badge>
+                    <Button size="sm" variant="ghost" className="text-bad" disabled={busy === occ.outgoing.id}
+                      onClick={() => cancelCover(occ.outgoing.id)}>
+                      Cancel
+                    </Button>
+                  </>
+                ) : occ.mine ? (
+                  occ.resp?.status === 'accepted' ? (
+                    <>
+                      <Badge className="bg-good-soft text-good">✓ accepted</Badge>
+                      <Button size="sm" variant="ghost" className="text-bad" disabled={busy === key}
+                        onClick={() => respond(occ, 'primary', 'declined')}>
+                        Can't make it anymore
+                      </Button>
+                    </>
+                  ) : occ.resp?.status === 'declined' ? (
+                    <Badge className="bg-subtle text-muted">
+                      declined{occ.slot.reserveId ? ` — passed to ${nameOf(occ.slot.reserveId)}` : ''}
+                    </Badge>
+                  ) : occ.reserveOn ? (
+                    <Badge className="bg-warn-soft text-warn">
+                      deadline passed — {occ.slot.reserveId ? `${nameOf(occ.slot.reserveId)} called` : 'uncovered'}
+                    </Badge>
+                  ) : (
+                    <>
+                      <Button size="sm" variant="success" disabled={busy === key} onClick={() => respond(occ, 'primary', 'accepted')}>
+                        ✓ Accept
+                      </Button>
+                      <Button size="sm" variant="danger" disabled={busy === key} onClick={() => respond(occ, 'primary', 'declined')}>
+                        Can't make it
+                      </Button>
+                    </>
+                  )
+                ) : occ.reserveOn ? (
+                  occ.resp?.reserve_status === 'accepted' ? (
+                    <>
+                      <Badge className="bg-info-soft text-info">✓ covering as reserve</Badge>
+                      <Button size="sm" variant="ghost" className="text-bad" disabled={busy === key}
+                        onClick={() => respond(occ, 'reserve', 'declined')}>
+                        Can't anymore
+                      </Button>
+                    </>
+                  ) : occ.resp?.reserve_status === 'declined' ? (
+                    <Badge className="bg-bad-soft text-bad">declined — slot needs cover</Badge>
+                  ) : (
+                    <>
+                      <Badge className="bg-info-soft text-info">🔁 you're up</Badge>
+                      <Button size="sm" variant="success" disabled={busy === key} onClick={() => respond(occ, 'reserve', 'accepted')}>
+                        ✓ I'll cover it
+                      </Button>
+                      <Button size="sm" variant="danger" disabled={busy === key} onClick={() => respond(occ, 'reserve', 'declined')}>
+                        Can't cover
+                      </Button>
+                    </>
+                  )
+                ) : (
+                  <Badge className="bg-subtle text-muted">
+                    on standby{occ.resp?.status === 'accepted' ? ` — ${nameOf(occ.slot.memberId)} accepted` : ''}
+                  </Badge>
+                )}
+
+                {canArrange && !occ.outgoing && (
+                  <Button
+                    size="sm" variant="ghost"
+                    onClick={() => { setPickerFor(pickerFor === key ? null : key); setPickTarget('') }}
+                  >
+                    Arrange a cover
+                  </Button>
                 )}
               </div>
 
-              {occ.mine ? (
-                occ.resp?.status === 'accepted' ? (
-                  <>
-                    <Badge className="bg-good-soft text-good">✓ accepted</Badge>
-                    <Button size="sm" variant="ghost" className="text-bad" disabled={busy === key}
-                      onClick={() => respond(occ, 'primary', 'declined')}>
-                      Can't make it anymore
-                    </Button>
-                  </>
-                ) : occ.resp?.status === 'declined' ? (
-                  <Badge className="bg-subtle text-muted">
-                    declined{occ.slot.reserveId ? ` — passed to ${nameOf(occ.slot.reserveId)}` : ''}
-                  </Badge>
-                ) : occ.reserveOn ? (
-                  <Badge className="bg-warn-soft text-warn">
-                    deadline passed — {occ.slot.reserveId ? `${nameOf(occ.slot.reserveId)} called` : 'uncovered'}
-                  </Badge>
-                ) : (
-                  <>
-                    <Button size="sm" variant="success" disabled={busy === key} onClick={() => respond(occ, 'primary', 'accepted')}>
-                      ✓ Accept
-                    </Button>
-                    <Button size="sm" variant="danger" disabled={busy === key} onClick={() => respond(occ, 'primary', 'declined')}>
-                      Can't make it
-                    </Button>
-                  </>
-                )
-              ) : occ.reserveOn ? (
-                occ.resp?.reserve_status === 'accepted' ? (
-                  <>
-                    <Badge className="bg-info-soft text-info">✓ covering as reserve</Badge>
-                    <Button size="sm" variant="ghost" className="text-bad" disabled={busy === key}
-                      onClick={() => respond(occ, 'reserve', 'declined')}>
-                      Can't anymore
-                    </Button>
-                  </>
-                ) : occ.resp?.reserve_status === 'declined' ? (
-                  <Badge className="bg-bad-soft text-bad">declined — slot needs cover</Badge>
-                ) : (
-                  <>
-                    <Badge className="bg-info-soft text-info">🔁 you're up</Badge>
-                    <Button size="sm" variant="success" disabled={busy === key} onClick={() => respond(occ, 'reserve', 'accepted')}>
-                      ✓ I'll cover it
-                    </Button>
-                    <Button size="sm" variant="danger" disabled={busy === key} onClick={() => respond(occ, 'reserve', 'declined')}>
-                      Can't cover
-                    </Button>
-                  </>
-                )
-              ) : (
-                <Badge className="bg-subtle text-muted">
-                  on standby{occ.resp?.status === 'accepted' ? ` — ${nameOf(occ.slot.memberId)} accepted` : ''}
-                </Badge>
+              {pickerFor === key && (
+                <div className="mt-2 flex items-center gap-2 flex-wrap pl-1">
+                  <Select className="!w-auto" value={pickTarget} onChange={(e) => setPickTarget(e.target.value)}>
+                    <option value="">Ask who to cover this?</option>
+                    {roster.filter((m) => m.id !== memberId && isActive(m)).map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </Select>
+                  <Button size="sm" variant="primary" disabled={!pickTarget || busy === key} onClick={() => sendCoverRequest(occ)}>
+                    Send request
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setPickerFor(null)}>Cancel</Button>
+                </div>
               )}
             </li>
           )
         })}
       </ul>
     </Card>
+
+    {incoming.length > 0 && (
+      <Card className="mb-5">
+        <CardHeader title="Cover requests for you" subtitle="A teammate can't make their slot and asked you to take it." />
+        <ul className="px-5 pb-5 divide-y divide-line">
+          {incoming.map(({ req, slot }) => (
+            <li key={req.id} className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
+              <div className="flex-1 min-w-44">
+                <span className="font-medium text-ink">
+                  {DAY_NAMES[slot.day]} · {minToLabel(slot.startMin)} – {minToLabel(slot.endMin)}
+                </span>
+                <span className="block text-xs text-faint">from {nameOf(req.from_member_id)} · week of {req.week_iso}</span>
+              </div>
+              <Button size="sm" variant="success" disabled={busy === req.id} onClick={() => respondToCover(req.id, 'accepted')}>
+                ✓ I'll cover it
+              </Button>
+              <Button size="sm" variant="danger" disabled={busy === req.id} onClick={() => respondToCover(req.id, 'declined')}>
+                Can't
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    )}
+    </>
   )
 }
 
@@ -786,7 +916,7 @@ function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
 
 // Roster-wide benching hour totals across every confirmed week.
 // Editors see everyone; members see just their own progress vs the requirement.
-function StatsModal({ onClose }) {
+function StatsModal({ onClose, coverRequests = [] }) {
   const { state, setBenching } = useStore()
   const { canEdit, memberId } = useAuth()
   const threshold = state.benching.threshold ?? 15
@@ -807,8 +937,18 @@ function StatsModal({ onClose }) {
         else if (ov.status === 'cover') bump(ov.coverMemberId, 'cover', mins)
       }
     }
+    // Self-arranged covers count too, same as an editor-assigned one — but
+    // an editor's own override for that slot/week (set afterwards) wins, so
+    // don't double-count if both exist.
+    for (const r of coverRequests) {
+      if (r.status !== 'accepted') continue
+      if (state.benching.weeks[r.week_iso]?.[r.slot_id]) continue
+      const slot = state.benching.template.find((s) => s.id === r.slot_id)
+      if (!slot) continue
+      bump(r.to_member_id, 'cover', slot.endMin - slot.startMin)
+    }
     return acc
-  }, [state.benching.weeks])
+  }, [state.benching.weeks, state.benching.template, coverRequests])
 
   const rows = state.roster
     .map((m) => {

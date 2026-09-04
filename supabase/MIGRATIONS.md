@@ -34,6 +34,7 @@ guessing from what the app seems to do.
 | 18 | `migration-18-checkin-token.sql` | Drops the spoken check-in password for a per-session QR token. | ✅ *(confirmed run 2026-09)* |
 | 19 | `migration-19-rls-tightening.sql` | Locks `profiles` reads to editor-or-self; drops unused direct-write policies on `slot_responses`. | ✅ *(confirmed run 2026-09)* |
 | 20 | `migration-20-cover-requests.sql` | `cover_requests` table + `request_cover()` / `respond_to_cover()` / `cancel_cover_request()` for self-serve benching cover swaps. | ✅ *(confirmed run 2026-09)* |
+| 21 | `migration-21-fix-request-cover-roster.sql` | Fixes `request_cover()` reading the roster doc one level too deep, so the active-member check always failed. | ⬜ |
 
 Everything through #18 is assumed applied because the app is live and
 working end to end on it — **but this file is the first time that's been

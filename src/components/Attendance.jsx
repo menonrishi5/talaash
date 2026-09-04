@@ -9,18 +9,14 @@ import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, Empty
 
 const money = (n) => `$${Number(n) % 1 ? Number(n).toFixed(2) : Number(n)}`
 
-const WORDS = [
-  'tiger', 'garba', 'bolly', 'dhoom', 'jalwa', 'mirchi', 'desi', 'tashan',
-  'bhangra', 'chakde', 'nachle', 'thumka', 'raaga', 'dholak', 'sitar', 'mehfil',
-  'jhoom', 'masti', 'rangla', 'sapna', 'josh', 'lehar',
-]
-const word = () => WORDS[Math.floor(Math.random() * WORDS.length)]
-// Two words + 2 digits: still announceable ("tiger-jhoom-47") but far more
-// than the old ~1k space, so it can't be guessed/scripted from home.
-const genPassword = () => `${word()}-${word()}-${Math.floor(10 + Math.random() * 90)}`
+// Per-session check-in token. Nobody types this — it only ever travels
+// embedded in the QR/link, so it can be long and random instead of
+// announceable. Dies with the session (a new one is minted next practice).
+const genToken = () =>
+  crypto.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
 
-function checkInURL() {
-  return `${window.location.origin}${window.location.pathname}#/checkin`
+function checkInURL(token) {
+  return `${window.location.origin}${window.location.pathname}#/checkin?t=${encodeURIComponent(token)}`
 }
 
 const timeOpts = []
@@ -89,14 +85,11 @@ function MyAttendance() {
 
       {todaySession && (
         <Card className="mb-5">
-          <div className="px-5 py-4 flex items-center justify-between flex-wrap gap-3">
-            <div>
-              <p className="text-sm font-semibold text-ink">Practice check-in is open today</p>
-              <p className="text-xs text-muted">Use the password announced at practice.</p>
-            </div>
-            <Button variant="primary" onClick={() => window.open(checkInURL(), '_blank')}>
-              Check in now
-            </Button>
+          <div className="px-5 py-4">
+            <p className="text-sm font-semibold text-ink">Practice check-in is open today</p>
+            <p className="text-xs text-muted">
+              Scan the QR posted at practice, or open the link the board shared — that's what checks you in, no password needed.
+            </p>
           </div>
         </Card>
       )}
@@ -348,14 +341,15 @@ function AttendanceAdmin() {
         .eq('session_date', todayISO)
         .maybeSingle()
       if (e1) throw e1
-      // Password lives in the editor-only secrets table; attach it for display.
+      // The check-in token lives in the editor-only secrets table; attach it
+      // so the QR/link can be built. It's never shown as text to read aloud.
       if (sess) {
         const { data: secret } = await supabase
           .from('session_secrets')
           .select('password')
           .eq('session_id', sess.id)
           .maybeSingle()
-        sess.password = secret?.password ?? ''
+        sess.token = secret?.password ?? ''
       }
       setSession(sess)
       if (sess) {
@@ -396,7 +390,7 @@ function AttendanceAdmin() {
     <div>
       <PageHeader
         title="Attendance"
-        subtitle="Check-in link + rotating password per practice; fines compute on the server clock."
+        subtitle="Scan-to-check-in QR, fresh every practice; fines compute on the server clock."
         actions={canEdit && (
           <>
             <AnnounceButton />
@@ -622,15 +616,16 @@ function StartSession({ todayISO, onCreated }) {
     tier1_amount: 5,
     tier2_amount: 10,
     fines_active: true,
-    password: genPassword(),
+    token: genToken(),
   })
   const [busy, setBusy] = useState(false)
 
   const create = async () => {
     setBusy(true)
-    const { password, ...sessionFields } = form
-    // Session row (team-readable) and its password (editor-only) are stored
-    // separately so members can't read today's code from the API.
+    const { token, ...sessionFields } = form
+    // Session row (team-readable) and its check-in token (editor-only) are
+    // stored separately — the public check-in page never sees it directly,
+    // only via the URL it was opened with.
     const { data: sess, error } = await supabase
       .from('attendance_sessions')
       .insert({ session_date: todayISO, ...sessionFields })
@@ -639,8 +634,8 @@ function StartSession({ todayISO, onCreated }) {
     if (!error && sess) {
       const { error: e2 } = await supabase
         .from('session_secrets')
-        .insert({ session_id: sess.id, password })
-      if (e2) { setBusy(false); alert('Could not save the password: ' + e2.message); return }
+        .insert({ session_id: sess.id, password: token })
+      if (e2) { setBusy(false); alert('Could not save the check-in token: ' + e2.message); return }
     }
     setBusy(false)
     if (error) {
@@ -655,7 +650,7 @@ function StartSession({ todayISO, onCreated }) {
     <Card className="mb-5">
       <CardHeader
         title={`Start today's practice — ${fmtDate(todayISO, { weekday: 'long', month: 'short', day: 'numeric' })}`}
-        subtitle="Creates the check-in session and today's password. Share the QR/link once it's live."
+        subtitle="Creates today's check-in QR. Nobody needs a password — post the QR at practice once it's live."
       />
       <div className="px-5 pb-5">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -698,12 +693,7 @@ function StartSession({ todayISO, onCreated }) {
             />
             Fines active today
           </label>
-          <div className="flex items-center gap-2 ml-auto">
-            <span className="text-sm text-muted">Password:</span>
-            <code className="px-2.5 py-1 bg-subtle rounded-lg text-sm font-bold tracking-wide">{form.password}</code>
-            <Button size="sm" variant="ghost" onClick={() => setForm({ ...form, password: genPassword() })}>↻ New</Button>
-          </div>
-          <Button variant="primary" disabled={busy} onClick={create}>
+          <Button variant="primary" className="ml-auto" disabled={busy} onClick={create}>
             {busy ? 'Starting…' : 'Start session'}
           </Button>
         </div>
@@ -718,7 +708,7 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
   const { state } = useStore()
   const { canEdit } = useAuth()
   const [qr, setQr] = useState(null)
-  const url = checkInURL()
+  const url = checkInURL(session.token)
 
   useEffect(() => {
     QRCode.toDataURL(url, { width: 480, margin: 1 }).then(setQr).catch(console.error)
@@ -843,8 +833,8 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
           ) : (
             <>
               {qr && <img src={qr} alt="Check-in QR code" className="w-48 h-48 rounded-xl border border-line" />}
-              <div className="mt-3 text-2xl font-black tracking-widest text-ink uppercase">{session.password}</div>
-              <p className="text-[11px] text-faint mb-3">announce this at practice — it changes daily</p>
+              <p className="mt-3 text-sm font-medium text-ink">Post this at practice — no password needed</p>
+              <p className="text-[11px] text-faint mb-3">a fresh code, good only for today's session</p>
               <div className="flex gap-2 flex-wrap justify-center">
                 <Button size="sm" onClick={() => navigator.clipboard.writeText(url)}>Copy link</Button>
                 <Button size="sm" variant="ghost" onClick={() => window.open(url, '_blank')}>Open page</Button>

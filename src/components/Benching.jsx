@@ -5,7 +5,7 @@ import { supabase, SUPABASE_URL } from '../supabase.js'
 import WeekGrid, { WeekAgenda } from './WeekGrid.jsx'
 import {
   uid, weekStartISO, addDaysISO, fmtWeekRange, minToLabel, durationLabel,
-  DAY_NAMES, parseBenchingSheet, toISODate,
+  DAY_NAMES, parseBenchingSheet, toISODate, downloadCSV,
 } from '../lib.js'
 import { isActive } from '../matching.js'
 import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, PageHeader, inputCls } from './ui.jsx'
@@ -862,7 +862,7 @@ function StatsModal({ onClose }) {
 
   return (
     <Modal title="Benching hour tracker" onClose={onClose} wide>
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         <span className="text-xs text-muted">Requirement:</span>
         <input
           type="number"
@@ -872,6 +872,27 @@ function StatsModal({ onClose }) {
           onChange={(e) => setBenching({ threshold: Number(e.target.value) || 0 })}
         />
         <span className="text-xs text-muted">hours — all confirmed hours (normal, reserve, cover) count.</span>
+        {rows.length > 0 && (
+          <Button
+            size="sm"
+            className="ml-auto"
+            onClick={() => downloadCSV(
+              `talaash-benching-hours-${new Date().toISOString().slice(0, 10)}.csv`,
+              ['Member', 'Normal (h)', 'Reserve (h)', 'Cover (h)', 'Total (h)', 'Requirement (h)', 'Met'],
+              rows.map(({ m, primary, reserve, cover, total }) => [
+                m.name,
+                (primary / 60).toFixed(2),
+                (reserve / 60).toFixed(2),
+                (cover / 60).toFixed(2),
+                (total / 60).toFixed(2),
+                threshold,
+                total / 60 >= threshold ? 'yes' : '',
+              ]),
+            )}
+          >
+            ↓ Export CSV
+          </Button>
+        )}
       </div>
       {rows.length === 0 ? (
         <p className="text-sm text-faint italic">Roster is empty.</p>

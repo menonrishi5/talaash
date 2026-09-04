@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { supabase } from '../supabase.js'
-import { uid } from '../lib.js'
+import { uid, downloadCSV } from '../lib.js'
 import { buildMatcher, buyerKey, buyerName, isActive } from '../matching.js'
 import { Button, Card, CardHeader, Modal, Badge, Select, EmptyState, ViewToggle, PageHeader, inputCls } from './ui.jsx'
 import VenmoTab from './Venmo.jsx'
@@ -354,6 +354,25 @@ function DuesAdmin() {
             subtitle={canEdit
               ? `Click a cell to override: auto → paid (manual) → exempt. Team outstanding (dues + fines): ${cents(totalOwed)}.`
               : `Team outstanding (dues + fines): ${cents(totalOwed)}.`}
+            actions={
+              <Button
+                size="sm"
+                onClick={() => downloadCSV(
+                  `talaash-dues-${new Date().toISOString().slice(0, 10)}.csv`,
+                  ['Member', ...categories.map((c) => c.name), 'Attendance fines', 'Late fines', 'Credits', 'Owed'],
+                  roster.map((m) => [
+                    m.name,
+                    ...categories.map((c) => cellState(m.id, c)),
+                    (finesDue[m.id] || 0) / 100,
+                    lateFineTotal(m.id) / 100,
+                    (creditsByMember[m.id] || 0) / 100,
+                    owedNet(m.id) / 100,
+                  ]),
+                )}
+              >
+                ↓ Export CSV
+              </Button>
+            }
           />
           <div className="px-5 pb-5 overflow-x-auto thin-scroll">
             <table className="text-sm border-separate border-spacing-0">

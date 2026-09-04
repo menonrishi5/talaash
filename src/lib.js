@@ -2,6 +2,25 @@
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 
+// Builds a CSV (RFC 4180-ish: quote fields with a comma/quote/newline,
+// double up inner quotes) and triggers a browser download. No library.
+export function downloadCSV(filename, headers, rows) {
+  const esc = (v) => {
+    const s = v == null ? '' : String(v)
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const csv = [headers, ...rows].map((r) => r.map(esc).join(',')).join('\r\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }) // BOM: Excel-friendly
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 export const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 export const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 

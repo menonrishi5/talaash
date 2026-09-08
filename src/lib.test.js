@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   teamParts, teamNow, nextPractice,
   minToLabel, minToShort, parseTime, durationLabel,
-  toISODate, fromISODate, weekStartISO, addDaysISO, dayIndexOfISO,
+  toISODate, fromISODate, weekStartISO, teamWeekStartISO, addDaysISO, dayIndexOfISO,
   fmtWeekRange, relativeDays, parseDay, parseBenchingSheet,
   segColor, SEGMENT_COLORS, sideLabel, weekLetter, slotsForWeek,
 } from './lib.js'
@@ -180,6 +180,16 @@ describe('date helpers', () => {
     expect(weekStartISO(fromISODate('2026-09-02'))).toBe('2026-08-31')
     // A Monday is its own week start.
     expect(weekStartISO(fromISODate('2026-08-31'))).toBe('2026-08-31')
+  })
+
+  it('teamWeekStartISO is a Monday, this week, in team time (not device time)', () => {
+    const wk = teamWeekStartISO()
+    expect(dayIndexOfISO(wk)).toBe(0) // Monday
+    const todayTeam = teamParts().iso
+    // The Monday it returns is today or up to 6 days back — same for
+    // everyone regardless of what timezone their laptop is set to.
+    expect(wk <= todayTeam).toBe(true)
+    expect(addDaysISO(wk, 6) >= todayTeam).toBe(true)
   })
 
   it('addDaysISO rolls over months and years correctly', () => {

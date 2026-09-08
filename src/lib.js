@@ -142,6 +142,15 @@ export function weekStartISO(date = new Date()) {
   return toISODate(d)
 }
 
+// Monday of the current week in the TEAM's timezone. Use this wherever a
+// week's identity has to be the same for everyone regardless of their
+// device clock/timezone — e.g. the benching A/B rotation. Plain
+// weekStartISO() reads local time and can land two people on Mondays a week
+// apart near the Sun/Mon boundary, flipping which week is A vs B.
+export function teamWeekStartISO() {
+  return weekStartISO(fromISODate(teamParts().iso))
+}
+
 export function addDaysISO(iso, days) {
   const d = fromISODate(iso)
   d.setDate(d.getDate() + days)

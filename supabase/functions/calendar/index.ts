@@ -57,8 +57,17 @@ Deno.serve(async (req) => {
   const blocks = (get("practiceBlocks") ?? []) as
     { id: string; segmentId: string; date: string; startMin: number; endMin: number }[];
   const benching = (get("benching") ?? {}) as {
-    template?: { id: string; day: number; startMin: number; endMin: number; memberId: string; reserveId: string | null }[];
+    template?: { id: string; day: number; startMin: number; endMin: number; memberId: string; reserveId: string | null; week?: "A" | "B" }[];
     activeLocation?: string | null;
+    rotationAnchorISO?: string | null;
+  };
+  const anchor = benching.rotationAnchorISO || null;
+  const slotsForMon = (m: { y: number; mo: number; d: number }) => {
+    if (!anchor) return benching.template ?? [];
+    const monMs = Date.UTC(m.y, m.mo - 1, m.d);
+    const weeks = Math.round((monMs - new Date(anchor + "T00:00:00Z").getTime()) / (7 * 86400000));
+    const L = ((weeks % 2) + 2) % 2 === 0 ? "A" : "B";
+    return (benching.template ?? []).filter((s) => !s.week || s.week === L);
   };
   const segName = (id: string) => segments.find((s) => s.id === id)?.name ?? "Practice";
 
@@ -85,7 +94,7 @@ Deno.serve(async (req) => {
   if (memberId) {
     for (let w = 0; w < 8; w++) {
       const mon = mondayOf(w);
-      for (const slot of benching.template ?? []) {
+      for (const slot of slotsForMon(mon)) {
         const isPrimary = slot.memberId === memberId;
         const isReserve = slot.reserveId === memberId;
         if (!isPrimary && !isReserve) continue;

@@ -4,7 +4,7 @@ import {
   minToLabel, minToShort, parseTime, durationLabel,
   toISODate, fromISODate, weekStartISO, addDaysISO, dayIndexOfISO,
   fmtWeekRange, relativeDays, parseDay, parseBenchingSheet,
-  segColor, SEGMENT_COLORS, sideLabel,
+  segColor, SEGMENT_COLORS, sideLabel, weekLetter, slotsForWeek,
 } from './lib.js'
 
 // ---- teamParts / teamNow ----
@@ -286,5 +286,50 @@ describe('sideLabel', () => {
   it('labels known sides and falls back for unknown ones', () => {
     expect(sideLabel('L')).toBe('Stage Left')
     expect(sideLabel('nonsense')).toBe('—')
+  })
+})
+
+// ---- benching A/B rotation ----
+
+describe('weekLetter', () => {
+  it('is null when there is no anchor (rotation off)', () => {
+    expect(weekLetter('2026-09-07', null)).toBeNull()
+    expect(weekLetter('2026-09-07', undefined)).toBeNull()
+  })
+
+  it('the anchor week is A, and it alternates every week from there', () => {
+    const anchor = '2026-09-07' // a Monday, defined as Week A
+    expect(weekLetter('2026-09-07', anchor)).toBe('A')
+    expect(weekLetter('2026-09-14', anchor)).toBe('B')
+    expect(weekLetter('2026-09-21', anchor)).toBe('A')
+    expect(weekLetter('2026-09-28', anchor)).toBe('B')
+  })
+
+  it('alternates correctly for weeks before the anchor too', () => {
+    const anchor = '2026-09-07'
+    expect(weekLetter('2026-08-31', anchor)).toBe('B')
+    expect(weekLetter('2026-08-24', anchor)).toBe('A')
+  })
+})
+
+describe('slotsForWeek', () => {
+  const template = [
+    { id: 's1', week: 'A' },
+    { id: 's2', week: 'B' },
+    { id: 's3' }, // every week
+  ]
+
+  it('returns the whole template when rotation is off', () => {
+    expect(slotsForWeek(template, '2026-09-07', null)).toHaveLength(3)
+  })
+
+  it('returns the A slots plus untagged ones on an A week', () => {
+    const got = slotsForWeek(template, '2026-09-07', '2026-09-07').map((s) => s.id)
+    expect(got).toEqual(['s1', 's3'])
+  })
+
+  it('returns the B slots plus untagged ones on a B week', () => {
+    const got = slotsForWeek(template, '2026-09-14', '2026-09-07').map((s) => s.id)
+    expect(got).toEqual(['s2', 's3'])
   })
 })

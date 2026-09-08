@@ -41,10 +41,20 @@ Deno.serve(async (_req) => {
     const get = (k: string) => stateRows?.find((r) => r.key === k)?.data;
     const roster = (get("roster") ?? []) as { id: string; name: string }[];
     const benching = (get("benching") ?? {}) as {
-      template?: { id: string; day: number; startMin: number; endMin: number; memberId: string; reserveId: string | null }[];
+      template?: { id: string; day: number; startMin: number; endMin: number; memberId: string; reserveId: string | null; week?: "A" | "B" }[];
       weeks?: Record<string, Record<string, { status: string }>>;
       activeLocation?: string | null;
+      rotationAnchorISO?: string | null;
     };
+    // A/B rotation: keep only the slots that apply to this week.
+    const anchor = benching.rotationAnchorISO || null;
+    let letter: "A" | "B" | null = null;
+    if (anchor) {
+      const weeks = Math.round(
+        (new Date(weekISO + "T00:00:00Z").getTime() - new Date(anchor + "T00:00:00Z").getTime()) / (7 * 86400000),
+      );
+      letter = ((weeks % 2) + 2) % 2 === 0 ? "A" : "B";
+    }
     const channel = (get("settings") ?? {})?.slackDigestChannel;
     if (!channel) return new Response(JSON.stringify({ ok: false, error: "No slackDigestChannel configured" }), { status: 200 });
 
@@ -53,7 +63,9 @@ Deno.serve(async (_req) => {
     for (const r of responses ?? []) respBySlot[r.slot_id] = r;
     const weekOv = benching.weeks?.[weekISO] ?? {};
 
-    const template = [...(benching.template ?? [])].sort((a, b) => a.day - b.day || a.startMin - b.startMin);
+    const template = (benching.template ?? [])
+      .filter((s) => !letter || !s.week || s.week === letter)
+      .sort((a, b) => a.day - b.day || a.startMin - b.startMin);
     const uncovered: string[] = [];
     const unaccepted: string[] = [];
     let accepted = 0;
@@ -73,7 +85,7 @@ Deno.serve(async (_req) => {
       }
     }
 
-    let text = `*🪑 Benching this week* (${weekISO})${benching.activeLocation ? ` · 📍 ${benching.activeLocation}` : ""}\n`;
+    let text = `*🪑 Benching this week* (${weekISO}${letter ? ` · Week ${letter}` : ""})${benching.activeLocation ? ` · 📍 ${benching.activeLocation}` : ""}\n`;
     text += `${accepted}/${template.length} slots confirmed.\n`;
     if (uncovered.length) text += `\n*⚠️ Uncovered (${uncovered.length}):*\n${uncovered.join("\n")}\n`;
     if (unaccepted.length) text += `\n*Needs attention (${unaccepted.length}):*\n${unaccepted.join("\n")}\n`;

@@ -99,8 +99,22 @@ Deno.serve(async (_req) => {
     const roster = (stateRows?.find((r) => r.key === "roster")?.data ?? []) as
       { id: string; name: string; active?: boolean }[];
     const benching = (stateRows?.find((r) => r.key === "benching")?.data ?? {}) as {
-      template?: { id: string; day: number; startMin: number; endMin: number; memberId: string; reserveId: string | null }[];
+      template?: { id: string; day: number; startMin: number; endMin: number; memberId: string; reserveId: string | null; week?: "A" | "B" }[];
       activeLocation?: string | null;
+      rotationAnchorISO?: string | null;
+    };
+    const anchor = benching.rotationAnchorISO || null;
+    // A/B rotation: which letter a given Monday (YYYY-MM-DD) is, or null.
+    const weekLetter = (mondayISO: string): "A" | "B" | null => {
+      if (!anchor) return null;
+      const a = new Date(anchor + "T00:00:00Z").getTime();
+      const w = new Date(mondayISO + "T00:00:00Z").getTime();
+      const weeks = Math.round((w - a) / (7 * 86400000));
+      return ((weeks % 2) + 2) % 2 === 0 ? "A" : "B";
+    };
+    const slotsFor = (mondayISO: string) => {
+      const L = weekLetter(mondayISO);
+      return (benching.template ?? []).filter((s) => !L || !s.week || s.week === L);
     };
     const settings = (stateRows?.find((r) => r.key === "settings")?.data ?? {}) as
       { benchingAcceptDeadlineHours?: number };
@@ -125,7 +139,7 @@ Deno.serve(async (_req) => {
     const toSend: { memberId: string; occ: string; kind: string; text: string }[] = [];
 
     for (const wk of [weekStart(0), weekStart(1)]) {
-      for (const slot of benching.template ?? []) {
+      for (const slot of slotsFor(wk.iso)) {
         const start = chicagoDate(wk.y, wk.mo, wk.d + slot.day, slot.startMin);
         const msUntil = start.getTime() - now.getTime();
         if (msUntil < -30 * 60000 || msUntil > 49 * 3600000) continue; // past, or >49h out

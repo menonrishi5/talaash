@@ -20,7 +20,9 @@ const DEFAULT_STATE = {
     locations: [],
     activeLocation: null,
     threshold: 15,
-    template: [], // {id, day:0-6, startMin, endMin, memberId, reserveId|null}
+    template: [], // {id, day:0-6, startMin, endMin, memberId, reserveId|null, week?:'A'|'B'}
+    // Anchor Monday (ISO) defined as a Week A. null = no A/B rotation.
+    rotationAnchorISO: null,
     // per-week overrides keyed by week start ISO, then template slot id:
     // { [weekISO]: { [slotId]: { status: 'primary'|'reserve'|'cover'|'uncovered', coverMemberId } } }
     weeks: {},
@@ -342,8 +344,19 @@ export function StoreProvider({ children }) {
       },
       // Replaces the weekly template. Past confirmations are kept — they carry
       // their own snapshot of times/people, so hour totals survive re-imports.
-      setTemplate(slots) {
-        set((s) => ({ ...s, benching: { ...s.benching, template: slots } }))
+      // With `week` ('A' | 'B') only that half of an A/B rotation is replaced;
+      // slots tagged with the other letter (or untagged) are left alone.
+      setTemplate(slots, week = null) {
+        set((s) => {
+          const tagged = week ? slots.map((sl) => ({ ...sl, week })) : slots
+          const kept = week ? s.benching.template.filter((t) => t.week && t.week !== week) : []
+          return { ...s, benching: { ...s.benching, template: [...kept, ...tagged] } }
+        })
+      },
+      // Anchor Monday for A/B rotation, defined as a Week A. null turns
+      // rotation off (every slot then applies every week).
+      setRotationAnchor(anchorISO) {
+        set((s) => ({ ...s, benching: { ...s.benching, rotationAnchorISO: anchorISO || null } }))
       },
       addTemplateSlot(slot) {
         set((s) => ({

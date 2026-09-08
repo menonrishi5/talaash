@@ -4,7 +4,7 @@ import { useAuth } from '../auth.jsx'
 import { supabase, SUPABASE_URL } from '../supabase.js'
 import WeekGrid, { WeekAgenda } from './WeekGrid.jsx'
 import {
-  uid, weekStartISO, addDaysISO, fmtWeekRange, minToLabel, durationLabel,
+  uid, teamWeekStartISO, addDaysISO, fmtWeekRange, minToLabel, durationLabel,
   DAY_NAMES, parseBenchingSheet, toISODate, downloadCSV, weekLetter, slotsForWeek,
 } from '../lib.js'
 import { isActive } from '../matching.js'
@@ -24,7 +24,7 @@ export default function Benching() {
   const { state } = useStore()
   const { canEdit, memberId } = useAuth()
   const { benching } = state
-  const [weekISO, setWeekISO] = useState(weekStartISO())
+  const [weekISO, setWeekISO] = useState(teamWeekStartISO())
   const [importOpen, setImportOpen] = useState(false)
   const [slotModal, setSlotModal] = useState(null) // template slot id or 'new'
   const [statsOpen, setStatsOpen] = useState(false)
@@ -236,7 +236,7 @@ export default function Benching() {
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
             {letter && <Badge className="bg-accent-soft text-accent">Week {letter}</Badge>}
             <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, -7))}>‹</Button>
-            <Button size="sm" onClick={() => setWeekISO(weekStartISO())}>Today</Button>
+            <Button size="sm" onClick={() => setWeekISO(teamWeekStartISO())}>Today</Button>
             <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, 7))}>›</Button>
             <span className="text-sm font-semibold text-ink whitespace-nowrap">{fmtWeekRange(weekISO)}</span>
           </div>
@@ -344,7 +344,7 @@ function MyBenching({ responses, onChanged, coverRequests = [], onCoverChanged }
   const now = new Date()
 
   const occurrences = []
-  for (const wkISO of [weekStartISO(), addDaysISO(weekStartISO(), 7)]) {
+  for (const wkISO of [teamWeekStartISO(), addDaysISO(teamWeekStartISO(), 7)]) {
     for (const slot of slotsForWeek(benching.template, wkISO, benching.rotationAnchorISO)) {
       if (slot.memberId !== memberId && slot.reserveId !== memberId) continue
       const dateISO = addDaysISO(wkISO, slot.day)
@@ -748,7 +748,7 @@ function ImportModal({ onClose }) {
     // First lettered import: anchor the rotation so THIS week resolves to the
     // letter just imported, and it alternates from there (editable later).
     if (week && !state.benching.rotationAnchorISO) {
-      const thisMon = weekStartISO()
+      const thisMon = teamWeekStartISO()
       setRotationAnchor(week === 'A' ? thisMon : addDaysISO(thisMon, -7))
     }
     onClose()

@@ -5,7 +5,7 @@ import { supabase, SUPABASE_URL } from '../supabase.js'
 import WeekGrid, { WeekAgenda } from './WeekGrid.jsx'
 import {
   uid, weekStartISO, addDaysISO, fmtWeekRange, minToLabel, durationLabel,
-  DAY_NAMES, parseBenchingSheet, toISODate, downloadCSV,
+  DAY_NAMES, parseBenchingSheet, toISODate, downloadCSV, weekLetter, slotsForWeek,
 } from '../lib.js'
 import { isActive } from '../matching.js'
 import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, PageHeader, inputCls } from './ui.jsx'
@@ -48,6 +48,11 @@ export default function Benching() {
   const overrides = benching.weeks[weekISO] || {}
   const memberName = (id) => state.roster.find((m) => m.id === id)?.name ?? '—'
 
+  // Slots for the week being viewed (respects A/B rotation if it's set up).
+  const anchor = benching.rotationAnchorISO
+  const weekSlots = slotsForWeek(benching.template, weekISO, anchor)
+  const letter = weekLetter(weekISO, anchor)
+
   const slotStatus = (slot) => overrides[slot.id]?.status ?? 'pending'
   const responseFor = (slotId) =>
     responses.find((r) => r.week_iso === weekISO && r.slot_id === slotId) ?? null
@@ -55,7 +60,7 @@ export default function Benching() {
   const acceptedCoverFor = (slotId) =>
     coverRequests.find((r) => r.week_iso === weekISO && r.slot_id === slotId && r.status === 'accepted') ?? null
 
-  const events = benching.template.map((slot) => {
+  const events = weekSlots.map((slot) => {
     // Editor attendance outcome wins; before that, a self-arranged cover
     // wins over the default RSVP chain; before that, reflect RSVP state
     // (member accept/decline, then the reserve's answer) live on the grid.
@@ -106,12 +111,12 @@ export default function Benching() {
     }
   })
 
-  const uncovered = benching.template.filter((s) => slotStatus(s) === 'uncovered')
+  const uncovered = weekSlots.filter((s) => slotStatus(s) === 'uncovered')
 
   const now = new Date()
   const todayISO = toISODate(now)
   const nowMin = now.getHours() * 60 + now.getMinutes()
-  const pastPending = benching.template.filter((s) => {
+  const pastPending = weekSlots.filter((s) => {
     if (slotStatus(s) !== 'pending') return false
     const date = addDaysISO(weekISO, s.day)
     return date < todayISO || (date === todayISO && s.endMin <= nowMin)
@@ -186,7 +191,7 @@ export default function Benching() {
         </div>
       )}
       {(() => {
-        const inactiveSlots = benching.template.filter((s) => {
+        const inactiveSlots = weekSlots.filter((s) => {
           const m = state.roster.find((r) => r.id === s.memberId)
           const res = state.roster.find((r) => r.id === s.reserveId)
           return (m && !isActive(m)) || (res && !isActive(res))
@@ -229,12 +234,14 @@ export default function Benching() {
             ))}
           </div>
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {letter && <Badge className="bg-accent-soft text-accent">Week {letter}</Badge>}
             <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, -7))}>‹</Button>
             <Button size="sm" onClick={() => setWeekISO(weekStartISO())}>Today</Button>
             <Button size="sm" onClick={() => setWeekISO(addDaysISO(weekISO, 7))}>›</Button>
             <span className="text-sm font-semibold text-ink whitespace-nowrap">{fmtWeekRange(weekISO)}</span>
           </div>
         </div>
+        {canEdit && <RotationControl weekISO={weekISO} letter={letter} />}
         {benching.template.length === 0 ? (
           <EmptyState
             icon={<span className="text-lg">🪑</span>}
@@ -275,6 +282,52 @@ export default function Benching() {
   )
 }
 
+// Editor control for the A/B rotation anchor. Off by default; once on, the
+// letter for every week is derived from a single anchor Monday, so nobody
+// re-imports each week.
+function RotationControl({ weekISO, letter }) {
+  const { setRotationAnchor } = useStore()
+
+  if (!letter) {
+    return (
+      <p className="px-5 pt-2 text-[11px] text-faint">
+        On an A/B rotation?{' '}
+        <button
+          className="underline text-accent cursor-pointer"
+          onClick={() => {
+            const wk = prompt('The week you\'re looking at — is it Week A or Week B? (type A or B)', 'A')
+            const v = (wk || '').trim().toUpperCase()
+            if (v !== 'A' && v !== 'B') return
+            setRotationAnchor(v === 'A' ? weekISO : addDaysISO(weekISO, -7))
+          }}
+        >
+          Turn on A/B weeks
+        </button>{' '}
+        — then tag slots as Week A / Week B (in a slot, or on import) and they alternate on their own.
+      </p>
+    )
+  }
+
+  return (
+    <p className="px-5 pt-2 text-[11px] text-faint">
+      A/B rotation on — the week shown above is <span className="font-semibold text-muted">Week {letter}</span>.{' '}
+      <button
+        className="underline text-accent cursor-pointer"
+        onClick={() => setRotationAnchor(letter === 'A' ? addDaysISO(weekISO, -7) : weekISO)}
+      >
+        Flip A ↔ B
+      </button>
+      {' · '}
+      <button
+        className="underline text-accent cursor-pointer"
+        onClick={() => { if (confirm('Turn off A/B rotation? Every slot then shows every week (week tags are kept).')) setRotationAnchor(null) }}
+      >
+        Turn off
+      </button>
+    </p>
+  )
+}
+
 // The signed-in member's own upcoming slots (this week + next), with
 // accept / decline. Responses drive the Slack reminders and the automatic
 // reserve call-up at the deadline.
@@ -292,7 +345,7 @@ function MyBenching({ responses, onChanged, coverRequests = [], onCoverChanged }
 
   const occurrences = []
   for (const wkISO of [weekStartISO(), addDaysISO(weekStartISO(), 7)]) {
-    for (const slot of benching.template) {
+    for (const slot of slotsForWeek(benching.template, wkISO, benching.rotationAnchorISO)) {
       if (slot.memberId !== memberId && slot.reserveId !== memberId) continue
       const dateISO = addDaysISO(wkISO, slot.day)
       const [y, mo, d] = dateISO.split('-').map(Number)
@@ -671,8 +724,9 @@ function LocationsModal({ onClose }) {
 }
 
 function ImportModal({ onClose }) {
-  const { ensureMembers, setTemplate } = useStore()
+  const { state, ensureMembers, setTemplate, setRotationAnchor } = useStore()
   const [text, setText] = useState('')
+  const [week, setWeek] = useState('') // '' = every week, 'A', 'B'
   const parsed = useMemo(() => parseBenchingSheet(text), [text])
 
   const doImport = () => {
@@ -690,7 +744,13 @@ function ImportModal({ onClose }) {
       memberId: idByName[r.member.trim().toLowerCase()],
       reserveId: r.reserve ? idByName[r.reserve.trim().toLowerCase()] : null,
     }))
-    setTemplate(slots)
+    setTemplate(slots, week || null)
+    // First lettered import: anchor the rotation so THIS week resolves to the
+    // letter just imported, and it alternates from there (editable later).
+    if (week && !state.benching.rotationAnchorISO) {
+      const thisMon = weekStartISO()
+      setRotationAnchor(week === 'A' ? thisMon : addDaysISO(thisMon, -7))
+    }
     onClose()
   }
 
@@ -702,6 +762,13 @@ function ImportModal({ onClose }) {
         The day carries down to following lines, so you can leave it off after the first row of each day.
         Times without AM/PM before 8 are treated as PM. New names are added to the roster automatically.
       </p>
+      <Field label="These slots are for">
+        <Select value={week} onChange={(e) => setWeek(e.target.value)}>
+          <option value="">Every week (no A/B rotation)</option>
+          <option value="A">Week A only</option>
+          <option value="B">Week B only</option>
+        </Select>
+      </Field>
       <textarea
         className={`${inputCls} h-48 font-mono !text-xs resize-y`}
         placeholder={'Thursday, 1:00, 2:30, Person A, Person E\n2:30, 4:00, Person B, Person E\nSunday, 12:00 PM, 1:30 PM, Person C, Person D'}
@@ -718,12 +785,14 @@ function ImportModal({ onClose }) {
       </div>
       <div className="flex justify-between items-center mt-4">
         <p className="text-[11px] text-faint max-w-xs">
-          Importing replaces the weekly template. Confirmed hours already earned are kept.
+          {week
+            ? `Replaces only the Week ${week} slots — the other week is untouched. Confirmed hours are kept.`
+            : 'Replaces the whole weekly template. Confirmed hours already earned are kept.'}
         </p>
         <div className="flex gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" disabled={parsed.rows.length === 0} onClick={doImport}>
-            Import {parsed.rows.length || ''} slots
+            Import {parsed.rows.length || ''} {week ? `to Week ${week}` : 'slots'}
           </Button>
         </div>
       </div>
@@ -741,6 +810,7 @@ function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
   const status = ov?.status ?? 'pending'
   const memberName = (id) => state.roster.find((m) => m.id === id)?.name ?? '—'
 
+  const rotating = !!state.benching.rotationAnchorISO
   const [edit, setEdit] = useState(isNew)
   const [form, setForm] = useState({
     day: slot?.day ?? 0,
@@ -748,6 +818,7 @@ function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
     endMin: slot?.endMin ?? 14 * 60 + 30,
     memberId: slot?.memberId ?? '',
     reserveId: slot?.reserveId ?? '',
+    week: slot?.week ?? '',
   })
   const [coverId, setCoverId] = useState('')
 
@@ -762,7 +833,7 @@ function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
 
   const saveEdit = async () => {
     if (!form.memberId || form.endMin <= form.startMin) return
-    const data = { ...form, reserveId: form.reserveId || null }
+    const data = { ...form, reserveId: form.reserveId || null, week: form.week || null }
     if (isNew) {
       addTemplateSlot(data)
     } else {
@@ -902,6 +973,15 @@ function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
                 .map((m) => <option key={m.id} value={m.id}>{m.name}{!isActive(m) ? ' (inactive)' : ''}</option>)}
             </Select>
           </Field>
+          {rotating && (
+            <Field label="Which week">
+              <Select value={form.week} onChange={(e) => setForm({ ...form, week: e.target.value })}>
+                <option value="">Every week</option>
+                <option value="A">Week A only</option>
+                <option value="B">Week B only</option>
+              </Select>
+            </Field>
+          )}
           <div className="flex justify-end gap-2 mt-2">
             <Button onClick={isNew ? onClose : () => setEdit(false)}>Cancel</Button>
             <Button variant="primary" disabled={!form.memberId} onClick={saveEdit}>

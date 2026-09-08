@@ -152,6 +152,24 @@ export function dayIndexOfISO(iso) {
   return (fromISODate(iso).getDay() + 6) % 7
 }
 
+// ---- benching A/B rotation ----
+// A template slot may carry week: 'A' | 'B' (absent = every week). `anchorISO`
+// is a Monday defined as a Week A; from there the letter alternates forever.
+
+export function weekLetter(weekISO, anchorISO) {
+  if (!anchorISO) return null
+  const weeks = Math.round((fromISODate(weekISO) - fromISODate(anchorISO)) / (7 * 86400000))
+  return (((weeks % 2) + 2) % 2) === 0 ? 'A' : 'B'
+}
+
+// The template slots that apply to a given week. With no anchor (rotation
+// off) every slot applies — identical to reading `template` directly.
+export function slotsForWeek(template, weekISO, anchorISO) {
+  const letter = weekLetter(weekISO, anchorISO)
+  if (!letter) return template
+  return template.filter((s) => !s.week || s.week === letter)
+}
+
 export function fmtDate(iso, opts = { month: 'short', day: 'numeric' }) {
   return fromISODate(iso).toLocaleDateString('en-US', opts)
 }

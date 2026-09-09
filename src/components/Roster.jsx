@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { supabase } from '../supabase.js'
-import { isActive, duplicatePairs } from '../matching.js'
+import { isActive, duplicatePairs, findRosterMatch } from '../matching.js'
 import { Button, Card, CardHeader, TextInput, EmptyState, Badge, Select, PageHeader } from './ui.jsx'
 
 export default function Roster() {
@@ -21,6 +21,16 @@ export default function Roster() {
   const add = () => {
     const n = name.trim()
     if (!n) return
+    // Catch a re-typed name before it becomes a phantom no-show in attendance.
+    const clash = findRosterMatch(state.roster, n)
+    if (clash) {
+      const same = clash.name.trim().toLowerCase() === n.toLowerCase()
+      if (!confirm(
+        same
+          ? `"${clash.name}" is already on the roster. Add a second one anyway?`
+          : `This looks like "${clash.name}", who's already on the roster. Add "${n}" as a separate member anyway?`,
+      )) return
+    }
     addMember(n)
     setName('')
   }

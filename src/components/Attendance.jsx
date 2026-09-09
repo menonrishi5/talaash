@@ -3,7 +3,7 @@ import QRCode from 'qrcode'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { supabase, todayTeamISO, fmtTeamTime } from '../supabase.js'
-import { minToLabel, fmtDate, nextPractice, DAY_NAMES, downloadCSV } from '../lib.js'
+import { minToLabel, fmtDate, nextPractice, DAY_NAMES, downloadCSV, teamNow } from '../lib.js'
 import { isActive, buildMatcher } from '../matching.js'
 import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, ViewToggle, PageHeader, inputCls } from './ui.jsx'
 
@@ -934,8 +934,9 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
     if (pick === null) return
     const member = missing[Number(pick) - 1]
     if (!member) return alert('No member matched that number.')
-    const now = new Date()
-    const nowMin = now.getHours() * 60 + now.getMinutes()
+    // Minutes since midnight in the TEAM's timezone — not the board device's,
+    // which may be travelling or set wrong (the check_in RPC uses team time).
+    const nowMin = teamNow().min
     let fine = 0
     if (session.fines_active && nowMin > session.cutoff_min + session.grace_min) {
       fine = nowMin <= session.cutoff_min + session.tier1_until_min

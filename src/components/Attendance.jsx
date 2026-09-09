@@ -525,6 +525,8 @@ function ScheduleModal({ onClose }) {
   const { state, setSettings } = useStore()
   const [rows, setRows] = useState(() => (state.settings?.practiceSchedule ?? []).map((p) => ({ ...p })))
   const [windowH, setWindowH] = useState(state.settings?.excuseWindowHours ?? 5)
+  const [autoFine, setAutoFine] = useState(state.settings?.autoFineNoShows !== false)
+  const [noShowFine, setNoShowFine] = useState(state.settings?.noShowFine ?? 10)
 
   const [channel, setChannel] = useState(state.settings?.slackAttendanceChannel ?? '')
   const timeOpts = []
@@ -535,6 +537,8 @@ function ScheduleModal({ onClose }) {
     setSettings({
       practiceSchedule: rows,
       excuseWindowHours: Number(windowH) || 5,
+      autoFineNoShows: autoFine,
+      noShowFine: Math.max(0, Number(noShowFine) || 0),
       slackAttendanceChannel: channel.trim(),
     })
     onClose()
@@ -567,6 +571,29 @@ function ScheduleModal({ onClose }) {
           value={windowH} onChange={(e) => setWindowH(e.target.value)} />
         <span className="text-xs text-muted">hours before start</span>
       </div>
+      <p className="text-[11px] text-faint mt-1">
+        After this, members can no longer mark themselves late or absent — not showing without an
+        excuse on file is an unexcused no-show.
+      </p>
+
+      <div className="mt-4 pt-4 border-t border-line">
+        <label className="flex items-center gap-2 text-sm text-ink cursor-pointer">
+          <input type="checkbox" checked={autoFine} onChange={(e) => setAutoFine(e.target.checked)} />
+          Auto-fine no-shows when a session ends
+        </label>
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-xs text-muted">Unexcused no-show fine  $</span>
+          <input type="number" min="0" step="1" disabled={!autoFine}
+            className="w-20 px-2 py-1 text-sm bg-surface border border-line-strong rounded-lg disabled:opacity-40"
+            value={noShowFine} onChange={(e) => setNoShowFine(e.target.value)} />
+        </div>
+        <p className="text-[11px] text-faint mt-1">
+          On “End session”, everyone who never checked in is recorded as a no-show. Those with no
+          excuse on file are fined this amount (only when the session’s fines are active); anyone
+          with an excuse is left for you to review. You can still waive any fine afterward.
+        </p>
+      </div>
+
       <div className="mt-4 pt-4 border-t border-line">
         <span className="block text-xs font-medium text-muted mb-1">Attendance Slack channel ID</span>
         <input
@@ -811,19 +838,60 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
 
   const ended = !!session.ended_at
 
+  const excuseFor = (mid) =>
+    excuses.find((e) => e.member_id === mid && e.practice_date === session.session_date)
+
   const setFines = async (on) => {
     await supabase.from('attendance_sessions').update({ fines_active: on }).eq('id', session.id)
     refresh()
   }
 
-  // End = close check-in, keep everything. Fines recorded so far stand.
+  // End = close check-in. Everyone who never checked in is recorded as a
+  // no-show: an approved absence is $0, an unexcused no-show is auto-fined
+  // (per settings), and anyone with a pending / late excuse is left off so it
+  // still lands in the review list below.
   const endSession = async () => {
-    if (!confirm('End today\'s check-in? Fines recorded so far stand, and nobody else can check in. (You can reopen if needed.)')) return
+    const autoFine = state.settings?.autoFineNoShows !== false
+    const fineAmt = session.fines_active ? Math.max(0, Number(state.settings?.noShowFine ?? 10)) : 0
+    const unexcused = missing.filter((m) => !excuseFor(m.id))
+    const approvedAbsent = missing.filter((m) => {
+      const e = excuseFor(m.id)
+      return e && !e.coming && e.status === 'approved'
+    })
+
+    let msg = "End today's check-in? Nobody else can check in (you can reopen if needed)."
+    if (autoFine && unexcused.length)
+      msg += fineAmt
+        ? `\n\n${unexcused.length} didn't check in or send an excuse — each is fined ${money(fineAmt)} (${money(unexcused.length * fineAmt)} total).`
+        : `\n\n${unexcused.length} didn't check in or send an excuse — recorded as no-shows (no fine — session fines are off).`
+    if (autoFine && approvedAbsent.length)
+      msg += `\n${approvedAbsent.length} with an approved absence recorded as excused.`
+    if (!confirm(msg)) return
+
     const { error } = await supabase
       .from('attendance_sessions')
       .update({ ended_at: new Date().toISOString() })
       .eq('id', session.id)
     if (error) { alert('Could not end the session: ' + error.message); return }
+
+    if (autoFine) {
+      const rows = [
+        ...unexcused.map((m) => ({
+          session_id: session.id, member_id: m.id, member_name: m.name,
+          mins_late: 0, fine: fineAmt, no_show: true,
+        })),
+        ...approvedAbsent.map((m) => ({
+          session_id: session.id, member_id: m.id, member_name: m.name,
+          mins_late: 0, fine: 0, no_show: true,
+        })),
+      ]
+      if (rows.length) {
+        const { error: e2 } = await supabase
+          .from('checkins')
+          .upsert(rows, { onConflict: 'session_id,member_id', ignoreDuplicates: true })
+        if (e2) console.error('Could not record no-shows', e2)
+      }
+    }
     // Post the recap to the attendance channel (no-op if no channel set).
     supabase.functions.invoke('attendance-notify', { body: { kind: 'recap', session_id: session.id } }).catch(() => {})
     refresh()
@@ -847,8 +915,6 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
   }
 
   const totalFines = checkins.reduce((n, c) => n + (c.fine_pending ? 0 : Number(c.fine)), 0)
-  // Excuse lookup for the no-show review.
-  const excuseFor = (memberId) => excuses.find((e) => e.member_id === memberId && e.practice_date === session.session_date)
 
   // Editors can adjust a fine without touching the check-in (waive = 0).
   const editFine = async (c) => {

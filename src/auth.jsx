@@ -38,6 +38,7 @@ function detectRecovery() {
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined) // undefined = still loading
   const [profile, setProfile] = useState(null)
+  const [profileLoaded, setProfileLoaded] = useState(false) // fetch has completed (row or not)
   // True after a password-reset link is opened, until they set a new password.
   const [recovery, setRecovery] = useState(detectRecovery)
 
@@ -56,9 +57,11 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!session?.user) {
       setProfile(null)
+      setProfileLoaded(false)
       return
     }
     let alive = true
+    setProfileLoaded(false)
     supabase
       .from('profiles')
       .select('*')
@@ -68,6 +71,7 @@ export function AuthProvider({ children }) {
         if (!alive) return
         if (error) console.error('Could not load your profile — role/links unavailable.', error)
         setProfile(data)
+        setProfileLoaded(true)
       })
     return () => {
       alive = false
@@ -75,15 +79,19 @@ export function AuthProvider({ children }) {
   }, [session?.user?.id])
 
   const isOwner = OWNER_EMAILS.includes((session?.user?.email ?? '').toLowerCase())
+  // Owner accounts bootstrap as editor (migration-2) and can't be demoted by
+  // anyone but themselves — so if an owner's profile row genuinely failed to
+  // load (error, or RLS hiding it), fall back to editor rather than stranding
+  // them. But when the row DID load and says 'viewer', respect it — that's a
+  // deliberate choice (e.g. previewing the member experience).
+  const ownerFallback = isOwner && profileLoaded && !profile
 
   const value = {
     loading: session === undefined,
     session: session ?? null,
     profile,
-    // The owner is always an editor (DB-bootstrapped + migration-16), so don't
-    // strand them as a viewer if the profile row just failed to load.
-    role: profile?.role ?? (isOwner ? 'editor' : 'viewer'),
-    canEdit: profile?.role === 'editor' || isOwner,
+    role: profile?.role ?? (ownerFallback ? 'editor' : 'viewer'),
+    canEdit: profile ? profile.role === 'editor' : ownerFallback,
     memberId: profile?.member_id ?? null, // linked roster member, set in App access
     isOwner,
     recovery,

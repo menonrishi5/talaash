@@ -6,6 +6,7 @@ import { uid, segColor, MIX_STATUSES, SIDES, sideLabel } from '../lib.js'
 import { isActive } from '../matching.js'
 import { readFormPages, detectMemberSides, pageToStage } from '../formReader.js'
 import { Button, Card, CardHeader, Badge, Select, TextInput, EmptyState, Modal, PageHeader } from './ui.jsx'
+import PdfViewer from './PdfViewer.jsx'
 
 function UploadButton({ accept, label, onFile }) {
   const ref = useRef(null)
@@ -198,6 +199,7 @@ function SegmentDetail({ segment }) {
 function FormsCard({ segment }) {
   const { updateSegment } = useStore()
   const { canEdit } = useAuth()
+  const [viewing, setViewing] = useState(false)
   const url = fileURL(segment.pdf?.fileId)
 
   const upload = async (file) => {
@@ -230,11 +232,22 @@ function FormsCard({ segment }) {
       {segment.pdf ? (
         url ? (
           <div className="px-5 pb-5">
-            <iframe
-              title="Forms PDF"
-              src={url}
-              className="w-full h-[36rem] rounded-xl border border-line bg-subtle"
-            />
+            <button
+              onClick={() => setViewing(true)}
+              className="w-full flex items-center gap-3 p-3 rounded-xl border border-line bg-subtle hover:border-faint text-left cursor-pointer transition-colors"
+            >
+              <span className="w-10 h-12 rounded-md bg-surface border border-line flex items-center justify-center shrink-0 text-bad">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" />
+                  <path d="M14 3v5h5" />
+                </svg>
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-medium text-ink truncate">{segment.pdf.name}</span>
+                <span className="block text-xs text-muted">Tap to view the forms</span>
+              </span>
+              <span className="text-xs font-medium text-accent shrink-0">Open</span>
+            </button>
           </div>
         ) : (
           <div className="px-5 pb-5 text-sm text-faint">Loading PDF…</div>
@@ -248,8 +261,11 @@ function FormsCard({ segment }) {
             </svg>
           }
           title="No forms uploaded"
-          hint="Upload the segment's formation PDF to scroll through it right here."
+          hint="Upload the segment's formation PDF — everyone can open it from here, on any device."
         />
+      )}
+      {viewing && url && (
+        <PdfViewer url={url} name={segment.pdf?.name} onClose={() => setViewing(false)} />
       )}
     </Card>
   )

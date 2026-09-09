@@ -4,8 +4,9 @@
 // stage thirds. Image-only PDFs and PNGs have no text layer — callers get an
 // empty result and should tell the user to fill sides manually.
 
-// pdf.js is heavy (~450 KB) and only needed here, so it loads on demand.
-async function loadPdfjs() {
+// pdf.js is heavy (~450 KB) and only needed for reading / rendering PDFs, so
+// it loads on demand. Shared by the forms auto-detect and the PDF viewer.
+export async function loadPdfjs() {
   const pdfjs = await import('pdfjs-dist')
   const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl

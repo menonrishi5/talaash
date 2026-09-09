@@ -132,6 +132,53 @@ export function StoreProvider({ children }) {
     }
   }, [])
 
+  // Re-pull from the server when the tab regains focus, so a member who left
+  // the app open sees new uploads / schedule / benching changes without a
+  // hard reload (there's no realtime channel on app_state). Domains with
+  // unsaved local edits are left untouched.
+  useEffect(() => {
+    let last = 0
+    const withDefaults = (key, data) => {
+      if (key === 'benching') return { ...DEFAULT_STATE.benching, ...(data || {}) }
+      if (key === 'dues') return { ...DEFAULT_STATE.dues, ...(data || {}) }
+      if (key === 'settings') return { ...DEFAULT_STATE.settings, ...(data || {}) }
+      return data
+    }
+    const pull = async () => {
+      if (!loadedRef.current || document.visibilityState === 'hidden') return
+      if (Date.now() - last < 20000) return
+      last = Date.now()
+      try {
+        const { data, error } = await supabase.from('app_state').select('key,data')
+        if (error || !data) return
+        setState((cur) => {
+          const next = { ...cur }
+          let changed = false
+          for (const row of data) {
+            if (!DOMAIN_KEYS.includes(row.key)) continue
+            // Don't stomp edits this device hasn't saved yet.
+            if (JSON.stringify(cur[row.key]) !== lastSynced.current[row.key]) continue
+            const incoming = JSON.stringify(row.data)
+            if (incoming === lastSynced.current[row.key]) continue
+            next[row.key] = withDefaults(row.key, row.data)
+            lastSynced.current[row.key] = incoming
+            changed = true
+          }
+          return changed ? next : cur
+        })
+      } catch {
+        /* offline — ignore, the focus after will retry */
+      }
+    }
+    const onVis = () => document.visibilityState === 'visible' && pull()
+    window.addEventListener('focus', pull)
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.removeEventListener('focus', pull)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [])
+
   // Persist: localStorage immediately, server debounced (only changed domains).
   // Viewers never push — the database would reject it anyway.
   useEffect(() => {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { supabase } from '../supabase.js'
-import { isActive } from '../matching.js'
+import { isActive, duplicatePairs } from '../matching.js'
 import { Button, Card, CardHeader, TextInput, EmptyState, Badge, Select, PageHeader } from './ui.jsx'
 
 export default function Roster() {
@@ -143,9 +143,60 @@ export default function Roster() {
           </div>
         </Card>
 
+        {canEdit && <DuplicateReview />}
         {canEdit && <TeamAccess />}
       </div>
     </div>
+  )
+}
+
+// A benching-sheet import can seed a second member under a shorter name
+// ("Akul" alongside "Akul Laddha"), who then shows up forever as a no-show in
+// attendance. Surface those pairs and merge them in one click — the RPC moves
+// check-ins / fines / benching history onto the surviving member.
+function DuplicateReview() {
+  const { state, mergeMembers } = useStore()
+  const [busy, setBusy] = useState(null)
+  const [err, setErr] = useState(null)
+  const pairs = useMemo(() => duplicatePairs(state.roster), [state.roster])
+
+  if (pairs.length === 0) return null
+
+  const merge = async ({ keep, drop }) => {
+    if (!confirm(`Merge "${drop.name}" into "${keep.name}"? Their check-ins, fines and benching history move onto "${keep.name}", and "${drop.name}" is removed from the roster.`))
+      return
+    setBusy(drop.id)
+    setErr(null)
+    const { data, error } = await supabase.rpc('merge_members', { p_from: drop.id, p_to: keep.id })
+    setBusy(null)
+    if (error || !data?.ok) { setErr(error?.message ?? data?.error ?? 'Merge failed.'); return }
+    mergeMembers(drop.id, keep.id)
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title={`Possible duplicate members (${pairs.length})`}
+        subtitle="Same first name, one a shorter spelling of the other — usually a benching-sheet import. Merge keeps the fuller name."
+      />
+      <div className="px-5 pb-5">
+        {err && <p className="text-sm text-bad mb-2">{err}</p>}
+        <ul className="divide-y divide-line">
+          {pairs.map(({ keep, drop }) => (
+            <li key={drop.id + keep.id} className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
+              <span className="flex-1 min-w-52 text-ink">
+                <span className="font-medium">{drop.name}</span>
+                <span className="text-faint"> → </span>
+                <span className="font-medium">{keep.name}</span>
+              </span>
+              <Button size="sm" variant="primary" disabled={busy === drop.id} onClick={() => merge({ keep, drop })}>
+                {busy === drop.id ? 'Merging…' : `Merge → ${keep.name}`}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Card>
   )
 }
 

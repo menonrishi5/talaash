@@ -50,3 +50,49 @@ export function buildMatcher(roster, contactLinks = {}) {
 
 // A member is active unless explicitly flagged otherwise (legacy rows have no flag).
 export const isActive = (m) => m.active !== false
+
+// ---- roster de-duplication ----
+// A benching sheet often lists someone by a shorter name than the roster
+// ("Akul" for "Akul Laddha", or the reverse). Blindly adding every new name
+// creates a phantom second member who then shows up as a permanent no-show in
+// attendance. These helpers link/collapse those instead.
+
+// The roster member `name` almost certainly refers to, or null when it's
+// genuinely new (or too ambiguous to guess). Exact case-insensitive full-name
+// match wins; otherwise a one-word name links to the SINGLE roster member
+// whose name starts with that word, and a multi-word name links to the SINGLE
+// roster member who is exactly its first word. 2+ candidates -> null.
+export function findRosterMatch(roster, name) {
+  const key = norm(name)
+  if (!key) return null
+  const exact = roster.find((m) => norm(m.name) === key)
+  if (exact) return exact
+  const first = key.split(' ')[0]
+  const multi = key.includes(' ')
+  const cands = roster.filter((m) => {
+    const n = norm(m.name)
+    if (!multi) return n === first || n.startsWith(first + ' ')
+    return n === first
+  })
+  return cands.length === 1 ? cands[0] : null
+}
+
+// Pairs of existing roster members that look like the same person: same first
+// name, and one name is the other's prefix (or just the bare first name).
+// Returns [{ keep, drop }] with `keep` = the fuller name.
+export function duplicatePairs(roster) {
+  const out = []
+  for (let i = 0; i < roster.length; i++) {
+    for (let j = i + 1; j < roster.length; j++) {
+      const a = norm(roster[i].name)
+      const b = norm(roster[j].name)
+      if (!a || !b || a === b) continue
+      const [short, long, shortM, longM] =
+        a.length <= b.length ? [a, b, roster[i], roster[j]] : [b, a, roster[j], roster[i]]
+      if (short.includes(' ')) continue // only bare-first-name vs full-name pairs
+      if (short !== long.split(' ')[0]) continue
+      out.push({ keep: longM, drop: shortM })
+    }
+  }
+  return out
+}

@@ -6,7 +6,14 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState(null) // {kind: 'error'|'info', text}
+  const [msg, setMsg] = useState(() => {
+    // An expired / already-used reset link lands here with the reason in the
+    // URL hash — say so instead of showing a bare sign-in form.
+    const m = window.location.hash.match(/error_description=([^&]+)/)
+    if (!m) return null
+    try { window.history.replaceState({}, '', window.location.pathname) } catch { /* ignore */ }
+    return { kind: 'error', text: decodeURIComponent(m[1].replace(/\+/g, ' ')) + ' — request a new reset link below.' }
+  })
 
   const submit = async (e) => {
     e.preventDefault()

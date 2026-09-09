@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { isActive, buyerKey, buyerName, buildMatcher } from './matching.js'
+import {
+  isActive, buyerKey, buyerName, buildMatcher, findRosterMatch, duplicatePairs,
+} from './matching.js'
 
 describe('isActive', () => {
   it('is active unless explicitly flagged false (legacy rows have no flag)', () => {
@@ -72,5 +74,62 @@ describe('buildMatcher', () => {
   it('returns null for a total stranger', () => {
     const matcher = buildMatcher(roster)
     expect(matcher({ buyer_first: 'Nobody', buyer_last: 'Here' })).toBeNull()
+  })
+})
+
+describe('findRosterMatch', () => {
+  const roster = [
+    { id: 'm1', name: 'Akul Laddha' },
+    { id: 'm2', name: 'Priya Kumar' },
+    { id: 'm3', name: 'Priya Nair' },   // two Priyas -> first name ambiguous
+    { id: 'm4', name: 'Sam' },
+  ]
+
+  it('matches an exact full name (case-insensitive)', () => {
+    expect(findRosterMatch(roster, '  akul laddha ')?.id).toBe('m1')
+  })
+
+  it('links a bare first name to the one member it could be', () => {
+    expect(findRosterMatch(roster, 'Akul')?.id).toBe('m1')
+  })
+
+  it('links a fuller name back to a bare-first-name member', () => {
+    expect(findRosterMatch(roster, 'Sam Rivera')?.id).toBe('m4')
+  })
+
+  it('refuses to guess when the first name is ambiguous', () => {
+    expect(findRosterMatch(roster, 'Priya')).toBeNull()
+    expect(findRosterMatch(roster, 'Priya Shah')).toBeNull()
+  })
+
+  it('returns null for a genuinely new person', () => {
+    expect(findRosterMatch(roster, 'Dev Kumar')).toBeNull()
+  })
+})
+
+describe('duplicatePairs', () => {
+  it('flags a bare first name sitting next to its full name, keeping the fuller one', () => {
+    const pairs = duplicatePairs([
+      { id: 'a', name: 'Akul' },
+      { id: 'b', name: 'Akul Laddha' },
+      { id: 'c', name: 'Priya Kumar' },
+    ])
+    expect(pairs).toHaveLength(1)
+    expect(pairs[0].keep.id).toBe('b')
+    expect(pairs[0].drop.id).toBe('a')
+  })
+
+  it('does not flag two different people who share a last name', () => {
+    expect(duplicatePairs([
+      { id: 'a', name: 'Dev Kumar' },
+      { id: 'b', name: 'Priya Kumar' },
+    ])).toEqual([])
+  })
+
+  it('does not flag two full names that share a first name', () => {
+    expect(duplicatePairs([
+      { id: 'a', name: 'Priya Kumar' },
+      { id: 'b', name: 'Priya Nair' },
+    ])).toEqual([])
   })
 })

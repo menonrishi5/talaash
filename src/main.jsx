@@ -12,7 +12,13 @@ import './index.css'
 // Tiny hash router: #/checkin is the public page members open from the QR
 // code (no login); everything else is the logged-in app.
 const isCheckIn = () => window.location.hash.startsWith('#/checkin')
-window.addEventListener('hashchange', () => window.location.reload())
+window.addEventListener('hashchange', () => {
+  // supabase-js writes auth tokens / errors into the URL hash and then clears
+  // them — don't treat that churn as a route change and reload through it,
+  // or the password-recovery screen never gets a chance to show.
+  if (/access_token=|type=recovery|error_description=/.test(window.location.hash)) return
+  window.location.reload()
+})
 
 function Root() {
   const { loading, session, recovery } = useAuth()

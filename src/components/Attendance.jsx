@@ -536,33 +536,61 @@ function ScheduleModal({ onClose }) {
 // Pending "not coming" excuses awaiting an approve/deny decision.
 function AbsenceReview({ excuses, onChanged }) {
   const { state } = useStore()
+  const [sel, setSel] = useState(() => new Set())
+  const [busy, setBusy] = useState(false)
   const pending = (excuses ?? []).filter((e) => !e.coming && e.status === 'pending')
   if (pending.length === 0) return null
   const nameOf = (id) => state.roster.find((m) => m.id === id)?.name ?? 'Unknown'
 
-  const decide = async (ex, status) => {
+  const toggle = (id) =>
+    setSel((s) => {
+      const n = new Set(s)
+      n.has(id) ? n.delete(id) : n.add(id)
+      return n
+    })
+
+  const decide = async (ids, status) => {
+    setBusy(true)
     const { error } = await supabase.from('excuses')
-      .update({ status, decided_at: new Date().toISOString() }).eq('id', ex.id)
+      .update({ status, decided_at: new Date().toISOString() }).in('id', ids)
+    setBusy(false)
     if (error) alert('Could not save: ' + error.message)
+    setSel(new Set())
     onChanged()
   }
+
+  const chosen = pending.filter((e) => sel.has(e.id)).map((e) => e.id)
 
   return (
     <Card className="mb-5">
       <CardHeader
         title={`Absence excuses to review (${pending.length})`}
         subtitle="Members who said they can't make it. Approve = excused (no fine); deny = they're a normal no-show at session end."
+        actions={
+          chosen.length > 0 && (
+            <Button size="sm" variant="success" disabled={busy} onClick={() => decide(chosen, 'approved')}>
+              Excuse {chosen.length} selected
+            </Button>
+          )
+        }
       />
       <ul className="px-5 pb-5 divide-y divide-line">
         {pending.map((ex) => (
           <li key={ex.id} className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
+            <input
+              type="checkbox"
+              className="shrink-0"
+              checked={sel.has(ex.id)}
+              onChange={() => toggle(ex.id)}
+              aria-label={`Select ${nameOf(ex.member_id)}`}
+            />
             <div className="flex-1 min-w-52">
               <span className="font-medium text-ink">{nameOf(ex.member_id)}</span>
               <span className="text-xs text-faint"> · {fmtDate(ex.practice_date)}</span>
               <span className="block text-xs text-muted">“{ex.reason}”</span>
             </div>
-            <Button size="sm" variant="success" onClick={() => decide(ex, 'approved')}>Excuse</Button>
-            <Button size="sm" variant="danger" onClick={() => decide(ex, 'denied')}>Deny</Button>
+            <Button size="sm" variant="success" disabled={busy} onClick={() => decide([ex.id], 'approved')}>Excuse</Button>
+            <Button size="sm" variant="danger" disabled={busy} onClick={() => decide([ex.id], 'denied')}>Deny</Button>
           </li>
         ))}
       </ul>
@@ -717,6 +745,8 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
   const { state } = useStore()
   const { canEdit } = useAuth()
   const [qr, setQr] = useState(null)
+  const [selNoShow, setSelNoShow] = useState(() => new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
   const url = checkInURL(session.token)
 
   useEffect(() => {
@@ -820,6 +850,30 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
     const fine = Number(input)
     if (Number.isNaN(fine) || fine < 0) return alert('Enter a valid amount.')
     recordNoShow(member, fine)
+  }
+
+  const toggleNoShow = (id) =>
+    setSelNoShow((s) => {
+      const n = new Set(s)
+      n.has(id) ? n.delete(id) : n.add(id)
+      return n
+    })
+
+  // Excuse several no-shows at once (fine 0, keeps a record for each).
+  const excuseSelectedNoShows = async () => {
+    const picked = missing.filter((m) => selNoShow.has(m.id))
+    if (picked.length === 0) return
+    setBulkBusy(true)
+    const { error } = await supabase.from('checkins').insert(
+      picked.map((m) => ({
+        session_id: session.id, member_id: m.id, member_name: m.name,
+        mins_late: 0, fine: 0, no_show: true,
+      })),
+    )
+    setBulkBusy(false)
+    if (error) alert('Could not excuse: ' + error.message)
+    setSelNoShow(new Set())
+    refresh()
   }
 
   return (
@@ -949,15 +1003,41 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
           )}
           {missing.length > 0 && ended && canEdit && (
             <>
-              <p className="text-[11px] uppercase tracking-wide text-warn font-medium mb-1.5">
-                ⚠ No-shows to review ({missing.length}) — fine or excuse each
-              </p>
+              <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                <p className="text-[11px] uppercase tracking-wide text-warn font-medium">
+                  ⚠ No-shows to review ({missing.length}) — fine or excuse each
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="text-[11px] text-faint hover:text-ink cursor-pointer underline"
+                    onClick={() =>
+                      setSelNoShow((s) =>
+                        s.size === missing.length ? new Set() : new Set(missing.map((m) => m.id)),
+                      )
+                    }
+                  >
+                    {selNoShow.size === missing.length ? 'Clear' : 'Select all'}
+                  </button>
+                  {selNoShow.size > 0 && (
+                    <Button size="sm" variant="success" disabled={bulkBusy} onClick={excuseSelectedNoShows}>
+                      Excuse {selNoShow.size} selected
+                    </Button>
+                  )}
+                </div>
+              </div>
               <ul className="divide-y divide-line">
                 {missing.map((m) => {
                   const ex = excuseFor(m.id)
                   const preExcused = ex && !ex.coming && ex.status === 'approved'
                   return (
                     <li key={m.id} className="py-1.5 flex items-center gap-2 text-sm flex-wrap">
+                      <input
+                        type="checkbox"
+                        className="shrink-0"
+                        checked={selNoShow.has(m.id)}
+                        onChange={() => toggleNoShow(m.id)}
+                        aria-label={`Select ${m.name}`}
+                      />
                       <div className="flex-1 min-w-40">
                         <span className="font-medium text-ink">{m.name}</span>
                         {ex && (

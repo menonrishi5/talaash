@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { uid } from './lib.js'
 import { supabase } from './supabase.js'
 import { useAuth } from './auth.jsx'
+import { findRosterMatch } from './matching.js'
 
 // App state lives in Supabase (table app_state, one JSON doc per domain) so
 // every device sees the same data. localStorage is kept as a fast local cache
@@ -207,25 +208,107 @@ export function StoreProvider({ children }) {
           },
         }))
       },
-      // find or create members by (case-insensitive) name; returns name->id map
+      // Find or create members by name; returns a name->id map. Matching is
+      // fuzzy on purpose: "Akul" links to an existing "Akul Laddha" (and a
+      // fuller "Akul Laddha" upgrades a bare "Akul") instead of spawning a
+      // duplicate that then haunts attendance as a permanent no-show. Only
+      // unambiguous matches link — anything with 2+ candidates is added new.
       ensureMembers(names) {
         const map = {}
         const additions = []
+        const renames = {} // existing member id -> fuller name to adopt
         for (const name of names) {
-          const key = name.trim().toLowerCase()
-          const found =
-            state.roster.find((m) => m.name.trim().toLowerCase() === key) ||
-            additions.find((m) => m.name.trim().toLowerCase() === key)
+          const clean = name.trim()
+          const key = clean.toLowerCase()
+          if (map[key]) continue
+          const inBatch = additions.find((m) => m.name.trim().toLowerCase() === key)
+          const found = inBatch || findRosterMatch([...state.roster, ...additions], clean)
           if (found) {
             map[key] = found.id
+            // Adopt the more complete spelling when the sheet has it.
+            if (
+              !inBatch &&
+              clean.includes(' ') &&
+              !found.name.trim().includes(' ') &&
+              clean.toLowerCase().startsWith(found.name.trim().toLowerCase() + ' ')
+            ) {
+              renames[found.id] = clean
+            }
           } else {
-            const member = { id: uid(), name: name.trim(), active: true }
+            const member = { id: uid(), name: clean, active: true }
             additions.push(member)
             map[key] = member.id
           }
         }
-        if (additions.length) set((s) => ({ ...s, roster: [...s.roster, ...additions] }))
+        if (additions.length || Object.keys(renames).length) {
+          set((s) => ({
+            ...s,
+            roster: [
+              ...s.roster.map((m) => (renames[m.id] ? { ...m, name: renames[m.id] } : m)),
+              ...additions,
+            ],
+          }))
+        }
         return map
+      },
+
+      // Fold a duplicate roster member (`dropId`) into the real one (`keepId`)
+      // everywhere the app stores a member id. Relational tables (checkins,
+      // benching responses, …) are repointed separately by the merge_members
+      // RPC — this only touches the app_state JSON docs.
+      mergeMembers(dropId, keepId) {
+        if (!dropId || !keepId || dropId === keepId) return
+        const to = (id) => (id === dropId ? keepId : id)
+        const foldKeyed = (obj) => {
+          if (!obj || !obj[dropId]) return obj
+          const { [dropId]: moved, ...rest } = obj
+          return { ...rest, [keepId]: { ...(rest[keepId] || {}), ...moved } }
+        }
+        set((s) => ({
+          ...s,
+          roster: s.roster.filter((m) => m.id !== dropId),
+          segments: s.segments.map((seg) => {
+            const seen = new Set()
+            return {
+              ...seg,
+              members: seg.members
+                .map((mm) => ({ ...mm, memberId: to(mm.memberId) }))
+                .filter((mm) => !seen.has(mm.memberId) && seen.add(mm.memberId)),
+            }
+          }),
+          benching: {
+            ...s.benching,
+            template: s.benching.template.map((t) => ({
+              ...t,
+              memberId: to(t.memberId),
+              reserveId: t.reserveId ? to(t.reserveId) : t.reserveId,
+            })),
+            weeks: Object.fromEntries(
+              Object.entries(s.benching.weeks || {}).map(([wk, ov]) => [
+                wk,
+                Object.fromEntries(
+                  Object.entries(ov).map(([slotId, v]) => [
+                    slotId,
+                    {
+                      ...v,
+                      ...(v.coverMemberId ? { coverMemberId: to(v.coverMemberId) } : {}),
+                      ...(v.memberId ? { memberId: to(v.memberId) } : {}),
+                      ...(v.reserveId ? { reserveId: to(v.reserveId) } : {}),
+                    },
+                  ]),
+                ),
+              ]),
+            ),
+          },
+          dues: {
+            ...s.dues,
+            overrides: foldKeyed(s.dues.overrides),
+            lateFineWaivers: foldKeyed(s.dues.lateFineWaivers),
+            contactLinks: Object.fromEntries(
+              Object.entries(s.dues.contactLinks || {}).map(([k, v]) => [k, to(v)]),
+            ),
+          },
+        }))
       },
 
       // ---- segments ----

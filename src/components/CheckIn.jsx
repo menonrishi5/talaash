@@ -219,15 +219,31 @@ function SignInPanel({ onSignedIn }) {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
+  const [note, setNote] = useState(null)
 
   const signIn = async () => {
     if (busy) return
     setBusy(true)
     setErr(null)
+    setNote(null)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     setBusy(false)
     if (error) setErr(error.message)
     else onSignedIn()
+  }
+
+  const forgot = async () => {
+    if (busy) return
+    if (!email) { setErr('Enter your email above first, then tap "Forgot password".'); return }
+    setBusy(true)
+    setErr(null)
+    setNote(null)
+    // Send them to the main app (not this check-in page) to set a new
+    // password — that's where the reset screen lives.
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: APP_URL() })
+    setBusy(false)
+    if (error) setErr(error.message)
+    else setNote("Check your email for a link to set a new password, then come back and sign in.")
   }
 
   const inputCls =
@@ -247,12 +263,21 @@ function SignInPanel({ onSignedIn }) {
           onKeyDown={(e) => e.key === 'Enter' && signIn()} />
       </div>
       {err && <p className="text-sm text-bad mb-3 text-center">{err}</p>}
+      {note && <p className="text-sm text-good mb-3 text-center">{note}</p>}
       <button
         onClick={signIn}
         disabled={busy || !email || !password}
         className="w-full py-3 rounded-xl bg-accent text-accent-ink font-semibold text-sm hover:bg-accent-strong transition-colors cursor-pointer disabled:opacity-40"
       >
         {busy ? 'One sec…' : 'Sign in'}
+      </button>
+      <button
+        type="button"
+        onClick={forgot}
+        disabled={busy}
+        className="w-full text-center text-xs text-muted hover:text-ink mt-3 cursor-pointer disabled:opacity-40"
+      >
+        Forgot password?
       </button>
       <p className="text-[11px] text-faint text-center mt-3">
         No account yet? <a className="underline" href={APP_URL()}>Create one here</a>, then come back.

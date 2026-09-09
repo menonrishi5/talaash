@@ -7,7 +7,7 @@ import {
   uid, teamWeekStartISO, addDaysISO, fmtWeekRange, minToLabel, durationLabel,
   DAY_NAMES, parseBenchingSheet, toISODate, downloadCSV, weekLetter, slotsForWeek,
 } from '../lib.js'
-import { isActive } from '../matching.js'
+import { isActive, resolveNames, norm } from '../matching.js'
 import { Button, Card, CardHeader, Modal, Field, Select, TextInput, Badge, EmptyState, PageHeader, inputCls } from './ui.jsx'
 
 const STATUS_META = {
@@ -724,25 +724,37 @@ function LocationsModal({ onClose }) {
 }
 
 function ImportModal({ onClose }) {
-  const { state, ensureMembers, setTemplate, setRotationAnchor } = useStore()
+  const { state, addMember, setTemplate, setRotationAnchor } = useStore()
   const [text, setText] = useState('')
   const [week, setWeek] = useState('') // '' = every week, 'A', 'B'
+  const [picks, setPicks] = useState({}) // name key -> memberId | '__new__'
   const parsed = useMemo(() => parseBenchingSheet(text), [text])
 
+  const names = useMemo(() => {
+    const s = []
+    parsed.rows.forEach((r) => { s.push(r.member); if (r.reserve) s.push(r.reserve) })
+    return s
+  }, [parsed])
+  const resolution = useMemo(() => resolveNames(state.roster, names), [state.roster, names])
+  const needsChoice = resolution.filter((r) => r.status === 'ambiguous')
+  const unpicked = needsChoice.filter((r) => !picks[r.key])
+
   const doImport = () => {
-    const names = new Set()
-    parsed.rows.forEach((r) => {
-      names.add(r.member)
-      if (r.reserve) names.add(r.reserve)
-    })
-    const idByName = ensureMembers([...names])
+    // Resolve every sheet name to a member id, creating members only where the
+    // editor asked for a new one.
+    const idFor = {}
+    for (const r of resolution) {
+      if (r.status === 'exact' || r.status === 'fuzzy') { idFor[r.key] = r.memberId; continue }
+      const pick = picks[r.key]
+      idFor[r.key] = pick && pick !== '__new__' ? pick : addMember(r.name).id
+    }
     const slots = parsed.rows.map((r) => ({
       id: uid(),
       day: r.day,
       startMin: r.startMin,
       endMin: r.endMin,
-      memberId: idByName[r.member.trim().toLowerCase()],
-      reserveId: r.reserve ? idByName[r.reserve.trim().toLowerCase()] : null,
+      memberId: idFor[norm(r.member)],
+      reserveId: r.reserve ? idFor[norm(r.reserve)] : null,
     }))
     setTemplate(slots, week || null)
     // First lettered import: anchor the rotation so THIS week resolves to the
@@ -754,13 +766,20 @@ function ImportModal({ onClose }) {
     onClose()
   }
 
+  const label = {
+    exact: ['is on the roster', 'text-faint'],
+    fuzzy: ['matched', 'text-faint'],
+    new: ['will be added as a new member', 'text-info'],
+    ambiguous: ['— more than one person could be this', 'text-warn'],
+  }
+
   return (
     <Modal title="Import benching sheet" onClose={onClose} wide>
       <p className="text-xs text-muted mb-2">
         Paste rows from your sheet — commas or straight from Google Sheets (tabs). One slot per line:{' '}
         <code className="bg-subtle px-1 py-0.5 rounded">Day, Start, End, Member, Reserve</code>.
         The day carries down to following lines, so you can leave it off after the first row of each day.
-        Times without AM/PM before 8 are treated as PM. New names are added to the roster automatically.
+        Times without AM/PM before 8 are treated as PM.
       </p>
       <Field label="These slots are for">
         <Select value={week} onChange={(e) => setWeek(e.target.value)}>
@@ -777,12 +796,50 @@ function ImportModal({ onClose }) {
       />
       <div className="mt-3 text-xs">
         {parsed.rows.length > 0 && (
-          <p className="text-good font-medium">✓ {parsed.rows.length} slot{parsed.rows.length > 1 ? 's' : ''} ready to import</p>
+          <p className="text-good font-medium">✓ {parsed.rows.length} slot{parsed.rows.length > 1 ? 's' : ''} parsed</p>
         )}
         {parsed.errors.map((e, i) => (
           <p key={i} className="text-bad">✗ {e}</p>
         ))}
       </div>
+
+      {resolution.length > 0 && (
+        <div className="mt-3 border border-line rounded-xl divide-y divide-line">
+          {resolution.map((r) => {
+            const [note, cls] = label[r.status]
+            const matchName = r.memberId && state.roster.find((m) => m.id === r.memberId)?.name
+            return (
+              <div key={r.key} className="px-3 py-2 flex items-center gap-2 flex-wrap text-xs">
+                <span className="font-medium text-ink">{r.name}</span>
+                {r.status === 'ambiguous' ? (
+                  <>
+                    <span className={cls}>{note}</span>
+                    <Select
+                      className="!w-auto !py-1 ml-auto"
+                      value={picks[r.key] ?? ''}
+                      onChange={(e) => setPicks({ ...picks, [r.key]: e.target.value })}
+                    >
+                      <option value="">Which member?</option>
+                      {r.candidates.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      <option value="__new__">＋ Add “{r.name}” as a new person</option>
+                    </Select>
+                  </>
+                ) : (
+                  <span className={cls}>
+                    {r.status === 'fuzzy' && matchName ? `→ ${matchName} (${note})` : note}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+      {unpicked.length > 0 && (
+        <p className="text-[11px] text-warn mt-2">
+          Pick who {unpicked.map((r) => `“${r.name}”`).join(', ')} {unpicked.length > 1 ? 'are' : 'is'} before importing.
+        </p>
+      )}
+
       <div className="flex justify-between items-center mt-4">
         <p className="text-[11px] text-faint max-w-xs">
           {week
@@ -791,7 +848,11 @@ function ImportModal({ onClose }) {
         </p>
         <div className="flex gap-2">
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={parsed.rows.length === 0} onClick={doImport}>
+          <Button
+            variant="primary"
+            disabled={parsed.rows.length === 0 || unpicked.length > 0}
+            onClick={doImport}
+          >
             Import {parsed.rows.length || ''} {week ? `to Week ${week}` : 'slots'}
           </Button>
         </div>

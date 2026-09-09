@@ -190,7 +190,7 @@ export default function Benching() {
           </ul>
         </div>
       )}
-      {(() => {
+      {canEdit && (() => {
         const inactiveSlots = weekSlots.filter((s) => {
           const m = state.roster.find((r) => r.id === s.memberId)
           const res = state.roster.find((r) => r.id === s.reserveId)
@@ -214,7 +214,7 @@ export default function Benching() {
         ) : null
       })()}
 
-      {pastPending.length > 0 && (
+      {canEdit && pastPending.length > 0 && (
         <div className="mb-4 rounded-2xl bg-warn-soft border border-warn/25 px-5 py-3">
           <p className="text-xs text-warn">
             <span className="font-semibold">{pastPending.length} past slot{pastPending.length > 1 ? 's' : ''} unconfirmed</span> — confirm attendance so hours count toward the requirement.

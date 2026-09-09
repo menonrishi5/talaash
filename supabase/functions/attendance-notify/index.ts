@@ -43,6 +43,22 @@ function chicago(dateISO: string, minutes: number): Date {
 }
 const dayOf = (iso: string) => (new Date(iso + "T00:00:00").getUTCDay() + 6) % 7; // Mon=0
 
+// The client-triggered modes (announce / room-update / recap) post to the
+// team's Slack channel, so only editors may call them — otherwise any signed-in
+// member could spam #attendance or post a fake room change. `cron` carries no
+// user and is skipped.
+async function callerIsEditor(req: Request): Promise<boolean> {
+  const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+  if (!jwt) return false;
+  const asUser = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!,
+    { global: { headers: { Authorization: `Bearer ${jwt}` } } },
+  );
+  const { data, error } = await asUser.rpc("is_editor");
+  return !error && data === true;
+}
+
 async function slack(method: string, params: Record<string, unknown>) {
   const res = await fetch(`https://slack.com/api/${method}`, {
     method: "POST",
@@ -66,6 +82,14 @@ Deno.serve(async (req) => {
     );
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const kind = body.kind ?? "cron";
+
+    if (kind === "announce" || kind === "room-update" || kind === "recap") {
+      if (!(await callerIsEditor(req))) {
+        return new Response(JSON.stringify({ ok: false, error: "Editors only." }), {
+          status: 403, headers: { ...cors, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     const { data: stateRows } = await supabase
       .from("app_state").select("key,data").in("key", ["roster", "benching", "settings"]);

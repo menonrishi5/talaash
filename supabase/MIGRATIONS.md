@@ -35,8 +35,8 @@ guessing from what the app seems to do.
 | 19 | `migration-19-rls-tightening.sql` | Locks `profiles` reads to editor-or-self; drops unused direct-write policies on `slot_responses`. | ✅ *(confirmed run 2026-09)* |
 | 20 | `migration-20-cover-requests.sql` | `cover_requests` table + `request_cover()` / `respond_to_cover()` / `cancel_cover_request()` for self-serve benching cover swaps. | ✅ *(confirmed run 2026-09)* |
 | 21 | `migration-21-fix-request-cover-roster.sql` | Fixes `request_cover()` reading the roster doc one level too deep, so the active-member check always failed. | ✅ *(confirmed run 2026-09)* |
-| 22 | `migration-22-checkin-lateness-and-merge.sql` | `check_in()`: a late-arrival excuse can only relax the on-time cutoff, never make you more late than a teammate who filed nothing. Adds `merge_members(from, to)` to fold a duplicate roster member's check-ins/fines/benching history onto the real one. | ⬜ |
-| 23 | `migration-23-announcement-location.sql` | Adds `attendance_announcements.location` so a practice's room is remembered at announce time and can be changed + re-posted to Slack afterwards. Pairs with an `attendance-notify` redeploy (new `room-update` mode). | ⬜ |
+| 22 | `migration-22-checkin-lateness-and-merge.sql` | `check_in()`: a late-arrival excuse can only relax the on-time cutoff, never make you more late than a teammate who filed nothing. Adds `merge_members(from, to)` to fold a duplicate roster member's check-ins/fines/benching history onto the real one. | ✅ *(confirmed run 2026-09)* |
+| 23 | `migration-23-announcement-location.sql` | Adds `attendance_announcements.location` so a practice's room is remembered at announce time and can be changed + re-posted to Slack afterwards. Pairs with an `attendance-notify` redeploy (new `room-update` mode). | ✅ *(confirmed run 2026-09, function redeployed)* |
 
 Everything through #18 is assumed applied because the app is live and
 working end to end on it — **but this file is the first time that's been

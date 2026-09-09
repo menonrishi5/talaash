@@ -77,11 +77,15 @@ export function findRosterMatch(roster, name) {
   return cands.length === 1 ? cands[0] : null
 }
 
-// Pairs of existing roster members that look like the same person: same first
-// name, and one name is the other's prefix (or just the bare first name).
-// Returns [{ keep, drop }] with `keep` = the fuller name.
+// Pairs of existing roster members that look like the same person: a bare
+// first name sitting next to exactly one fuller name that starts with it
+// ("Akul" / "Akul Laddha"). Returns [{ keep, drop }] with `keep` = the fuller
+// name. A bare name that could be TWO different people ("Rishi" with both
+// "Rishi Menon" and "Rishi Dasari" on the roster) is left out — merging it
+// would dump one person's slots onto the other. Use `ambiguousBareNames` to
+// surface those for manual reassignment instead.
 export function duplicatePairs(roster) {
-  const out = []
+  const raw = []
   for (let i = 0; i < roster.length; i++) {
     for (let j = i + 1; j < roster.length; j++) {
       const a = norm(roster[i].name)
@@ -91,8 +95,55 @@ export function duplicatePairs(roster) {
         a.length <= b.length ? [a, b, roster[i], roster[j]] : [b, a, roster[j], roster[i]]
       if (short.includes(' ')) continue // only bare-first-name vs full-name pairs
       if (short !== long.split(' ')[0]) continue
-      out.push({ keep: longM, drop: shortM })
+      raw.push({ keep: longM, drop: shortM })
     }
+  }
+  const dropCount = {}
+  raw.forEach((p) => (dropCount[p.drop.id] = (dropCount[p.drop.id] || 0) + 1))
+  return raw.filter((p) => dropCount[p.drop.id] === 1)
+}
+
+// Bare first-name roster members that match 2+ fuller names — genuinely
+// different people who share a first name, plus a stray bare entry (usually
+// from an old import). Not safely mergeable; the editor must reassign the
+// bare entry's slots by hand. Returns [{ bare, matches: [members] }].
+export function ambiguousBareNames(roster) {
+  const out = []
+  for (const m of roster) {
+    const nm = norm(m.name)
+    if (!nm || nm.includes(' ')) continue
+    const matches = roster.filter((o) => o.id !== m.id && norm(o.name).split(' ')[0] === nm)
+    if (matches.length >= 2) out.push({ bare: m, matches })
+  }
+  return out
+}
+
+// For the benching-sheet import: resolve each sheet name to an existing roster
+// member, or flag it. status: 'exact' | 'fuzzy' (one unambiguous match) |
+// 'ambiguous' (2+ possible people — editor must choose) | 'new'.
+export function resolveNames(roster, names) {
+  const seen = new Set()
+  const out = []
+  for (const raw of names) {
+    const name = String(raw).trim()
+    const key = norm(name)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    const exact = roster.find((m) => norm(m.name) === key)
+    if (exact) { out.push({ name, key, status: 'exact', memberId: exact.id, candidates: [] }); continue }
+    const first = key.split(' ')[0]
+    const multi = key.includes(' ')
+    const candidates = roster.filter((m) => {
+      const nm = norm(m.name)
+      if (nm === key) return true
+      return multi ? nm === first : nm === first || nm.startsWith(first + ' ')
+    })
+    if (candidates.length === 1)
+      out.push({ name, key, status: 'fuzzy', memberId: candidates[0].id, candidates })
+    else if (candidates.length >= 2)
+      out.push({ name, key, status: 'ambiguous', memberId: null, candidates })
+    else
+      out.push({ name, key, status: 'new', memberId: null, candidates: [] })
   }
   return out
 }

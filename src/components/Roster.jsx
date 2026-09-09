@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store.jsx'
 import { useAuth } from '../auth.jsx'
 import { supabase } from '../supabase.js'
-import { isActive, duplicatePairs, findRosterMatch } from '../matching.js'
+import { isActive, duplicatePairs, ambiguousBareNames, findRosterMatch } from '../matching.js'
 import { Button, Card, CardHeader, TextInput, EmptyState, Badge, Select, PageHeader } from './ui.jsx'
 
 export default function Roster() {
@@ -169,8 +169,9 @@ function DuplicateReview() {
   const [busy, setBusy] = useState(null)
   const [err, setErr] = useState(null)
   const pairs = useMemo(() => duplicatePairs(state.roster), [state.roster])
+  const ambiguous = useMemo(() => ambiguousBareNames(state.roster), [state.roster])
 
-  if (pairs.length === 0) return null
+  if (pairs.length === 0 && ambiguous.length === 0) return null
 
   const merge = async ({ keep, drop }) => {
     if (!confirm(`Merge "${drop.name}" into "${keep.name}"? Their check-ins, fines and benching history move onto "${keep.name}", and "${drop.name}" is removed from the roster.`))
@@ -186,25 +187,53 @@ function DuplicateReview() {
   return (
     <Card>
       <CardHeader
-        title={`Possible duplicate members (${pairs.length})`}
-        subtitle="Same first name, one a shorter spelling of the other — usually a benching-sheet import. Merge keeps the fuller name."
+        title="Roster cleanup"
+        subtitle="Leftover or look-alike members from benching-sheet imports."
       />
-      <div className="px-5 pb-5">
-        {err && <p className="text-sm text-bad mb-2">{err}</p>}
-        <ul className="divide-y divide-line">
-          {pairs.map(({ keep, drop }) => (
-            <li key={drop.id + keep.id} className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
-              <span className="flex-1 min-w-52 text-ink">
-                <span className="font-medium">{drop.name}</span>
-                <span className="text-faint"> → </span>
-                <span className="font-medium">{keep.name}</span>
-              </span>
-              <Button size="sm" variant="primary" disabled={busy === drop.id} onClick={() => merge({ keep, drop })}>
-                {busy === drop.id ? 'Merging…' : `Merge → ${keep.name}`}
-              </Button>
-            </li>
-          ))}
-        </ul>
+      <div className="px-5 pb-5 space-y-4">
+        {err && <p className="text-sm text-bad">{err}</p>}
+
+        {pairs.length > 0 && (
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-faint font-medium mb-1.5">
+              Same person, two spellings ({pairs.length}) — merge keeps the fuller name
+            </p>
+            <ul className="divide-y divide-line">
+              {pairs.map(({ keep, drop }) => (
+                <li key={drop.id + keep.id} className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
+                  <span className="flex-1 min-w-52 text-ink">
+                    <span className="font-medium">{drop.name}</span>
+                    <span className="text-faint"> → </span>
+                    <span className="font-medium">{keep.name}</span>
+                  </span>
+                  <Button size="sm" variant="primary" disabled={busy === drop.id} onClick={() => merge({ keep, drop })}>
+                    {busy === drop.id ? 'Merging…' : `Merge → ${keep.name}`}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {ambiguous.length > 0 && (
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-warn font-medium mb-1.5">
+              Bare first name shared by real people ({ambiguous.length}) — reassign by hand
+            </p>
+            <ul className="divide-y divide-line">
+              {ambiguous.map(({ bare, matches }) => (
+                <li key={bare.id} className="py-2.5 text-sm">
+                  <span className="font-medium text-ink">{bare.name}</span>
+                  <span className="text-muted"> could be {matches.map((m) => m.name).join(' or ')}.</span>
+                  <span className="block text-xs text-faint mt-0.5">
+                    Don't merge — open each of “{bare.name}”'s benching slots and set the right person,
+                    check that no account is linked to “{bare.name}” in App access, then Remove it.
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </Card>
   )

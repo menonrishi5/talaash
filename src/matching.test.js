@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   isActive, buyerKey, buyerName, buildMatcher, findRosterMatch, duplicatePairs,
+  ambiguousBareNames, resolveNames,
 } from './matching.js'
 
 describe('isActive', () => {
@@ -131,5 +132,68 @@ describe('duplicatePairs', () => {
       { id: 'a', name: 'Priya Kumar' },
       { id: 'b', name: 'Priya Nair' },
     ])).toEqual([])
+  })
+
+  it('does NOT offer a merge when a bare name could be two different people', () => {
+    // "Rishi" + "Rishi Menon" + "Rishi Dasari" — merging would dump one
+    // person's slots onto the other.
+    expect(duplicatePairs([
+      { id: 'x', name: 'Rishi' },
+      { id: 'm', name: 'Rishi Menon' },
+      { id: 'd', name: 'Rishi Dasari' },
+    ])).toEqual([])
+  })
+})
+
+describe('ambiguousBareNames', () => {
+  it('surfaces a bare first name that matches 2+ full names', () => {
+    const out = ambiguousBareNames([
+      { id: 'x', name: 'Rishi' },
+      { id: 'm', name: 'Rishi Menon' },
+      { id: 'd', name: 'Rishi Dasari' },
+      { id: 'a', name: 'Akul Laddha' },
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].bare.id).toBe('x')
+    expect(out[0].matches.map((m) => m.id).sort()).toEqual(['d', 'm'])
+  })
+
+  it('is silent when a bare name matches only one full name', () => {
+    expect(ambiguousBareNames([
+      { id: 'x', name: 'Akul' },
+      { id: 'a', name: 'Akul Laddha' },
+    ])).toEqual([])
+  })
+})
+
+describe('resolveNames', () => {
+  const roster = [
+    { id: 'm', name: 'Rishi Menon' },
+    { id: 'd', name: 'Rishi Dasari' },
+    { id: 'a', name: 'Akul Laddha' },
+  ]
+
+  it('marks an exact full-name hit', () => {
+    expect(resolveNames(roster, ['Rishi Menon'])[0]).toMatchObject({ status: 'exact', memberId: 'm' })
+  })
+
+  it('fuzzy-matches a bare name to the one member it could be', () => {
+    expect(resolveNames(roster, ['Akul'])[0]).toMatchObject({ status: 'fuzzy', memberId: 'a' })
+  })
+
+  it('flags a bare name that could be two people as ambiguous', () => {
+    const r = resolveNames(roster, ['Rishi'])[0]
+    expect(r.status).toBe('ambiguous')
+    expect(r.memberId).toBeNull()
+    expect(r.candidates.map((c) => c.id).sort()).toEqual(['d', 'm'])
+  })
+
+  it('does not fuzzy-match one full name to a different full name', () => {
+    // "Rishi Kumar" is a new person, not "Rishi Menon" or "Rishi Dasari".
+    expect(resolveNames(roster, ['Rishi Kumar'])[0]).toMatchObject({ status: 'new', memberId: null })
+  })
+
+  it('dedupes names case-insensitively', () => {
+    expect(resolveNames(roster, ['Akul Laddha', 'akul laddha ']).length).toBe(1)
   })
 })

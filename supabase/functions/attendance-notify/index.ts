@@ -1,9 +1,10 @@
 // Attendance Slack notifications. Deploy as edge function "attendance-notify".
 // Modes (POST body { kind }):
-//   announce  { practice_date }  -> post the "check in / excuse" prompt to #attendance
-//   recap     { session_id }     -> post the post-practice recap to #attendance
-//   cron      (from pg_cron)      -> window-close reminder (channel) + board
-//                                    summary (DM editors) for announced practices
+//   announce     { practice_date }             -> post the "check in / excuse" prompt to #attendance
+//   room-update  { practice_date, location }   -> re-post a room change to #attendance
+//   recap        { session_id }                -> post the post-practice recap to #attendance
+//   cron         (from pg_cron)                 -> window-close reminder (channel) + board
+//                                                 summary (DM editors) for announced practices
 // Needs SLACK_BOT_TOKEN and settings.slackAttendanceChannel (bot invited).
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -88,12 +89,31 @@ Deno.serve(async (req) => {
       const iso = body.practice_date as string;
       const sm = startMinFor(iso);
       const deadline = sm != null ? minLabel(sm - windowH * 60) : `${windowH}h before start`;
+      // Prefer the room snapshotted onto the announcement row (the app writes
+      // it when announcing); fall back to the live benching location.
+      const { data: annRow } = await supabase
+        .from("attendance_announcements").select("location").eq("practice_date", iso).maybeSingle();
+      const room = (annRow?.location as string | undefined) ?? location;
       const text =
         `🕺 *Practice ${fmtDate(iso)}${sm != null ? ` · ${minLabel(sm)}` : ""}*` +
-        `${location ? ` · 📍 ${location}` : ""}\n` +
+        `${room ? ` · 📍 ${room}` : ""}\n` +
         `Check in when you arrive. Can't make it or running late? Fill out the excuse form ` +
         `by *${deadline}*.\n` +
         `📆 Have a conflict after 7? Update your availability so we can schedule around it: ${APP_URL}`;
+      const r = await slack("chat.postMessage", { channel, text });
+      return json({ ok: r.ok, error: r.error ?? null });
+    }
+
+    // ---- room-update: the room changed after announcing; re-post it ----
+    if (kind === "room-update") {
+      if (!channel) return json({ ok: false, error: "No attendance channel set" });
+      const iso = body.practice_date as string;
+      const room = String(body.location ?? "").trim();
+      if (!iso || !room) return json({ ok: false, error: "Missing practice_date or location" });
+      const sm = startMinFor(iso);
+      const text =
+        `📍 *Room change — ${fmtDate(iso)} practice${sm != null ? ` · ${minLabel(sm)}` : ""}*\n` +
+        `Now in *${room}*. Check-in and the excuse deadline are unchanged.`;
       const r = await slack("chat.postMessage", { channel, text });
       return json({ ok: r.ok, error: r.error ?? null });
     }

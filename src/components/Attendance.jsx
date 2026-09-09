@@ -393,7 +393,7 @@ function AttendanceAdmin() {
         subtitle="Scan-to-check-in QR, fresh every practice; fines compute on the server clock."
         actions={canEdit && (
           <>
-            <AnnounceButton />
+            <AnnounceControls />
             <Button size="sm" onClick={() => setScheduleOpen(true)}>Practice schedule</Button>
             <Button size="sm" onClick={() => setPayModal(true)}>Record payment</Button>
           </>
@@ -433,27 +433,45 @@ function AttendanceAdmin() {
   )
 }
 
-// Manually announce the next practice to the #attendance channel, which also
-// arms the automatic window-close reminder + board summary for that date.
-function AnnounceButton() {
-  const { state } = useStore()
+// Announce the next practice to the #attendance channel (also arms the
+// automatic window-close reminder + board summary for that date), and — once
+// announced — re-post to the channel if the room changes.
+function AnnounceControls() {
+  const { state, setBenching } = useStore()
   const sched = state.settings?.practiceSchedule ?? []
   const next = useMemo(() => nextPractice(sched), [sched])
+  const [ann, setAnn] = useState(undefined) // undefined = loading, null = not announced, row
   const [busy, setBusy] = useState(false)
+
+  const loadAnn = useCallback(async () => {
+    if (!next) { setAnn(null); return }
+    const { data } = await supabase
+      .from('attendance_announcements')
+      .select('practice_date, location')
+      .eq('practice_date', next.dateISO)
+      .maybeSingle()
+    setAnn(data ?? null)
+  }, [next?.dateISO])
+  useEffect(() => { loadAnn() }, [loadAnn])
+
+  const room = () => state.benching?.activeLocation ?? null
 
   const announce = async () => {
     if (!next) return alert('Set up your practice schedule first.')
     if (!state.settings?.slackAttendanceChannel)
       return alert('Set the attendance Slack channel in Practice schedule first.')
-    if (!confirm(`Announce ${DAY_NAMES[next.day]} ${fmtDate(next.dateISO)} at ${minToLabel(next.startMin)} to the team?`)) return
+    const r = room()
+    const when = `${DAY_NAMES[next.day]} ${fmtDate(next.dateISO)} at ${minToLabel(next.startMin)}`
+    if (!confirm(`${ann ? 'Re-announce' : 'Announce'} ${when}${r ? ` · 📍 ${r}` : ''} to the team?`)) return
     setBusy(true)
     try {
-      await supabase.from('attendance_announcements').upsert({ practice_date: next.dateISO })
+      await supabase.from('attendance_announcements').upsert({ practice_date: next.dateISO, location: r })
       const { data, error } = await supabase.functions.invoke('attendance-notify', {
         body: { kind: 'announce', practice_date: next.dateISO },
       })
       if (error || !data?.ok) throw new Error(error?.message ?? data?.error)
       alert('Announced to the channel. The window-close reminder and board summary are now armed.')
+      loadAnn()
     } catch (e) {
       alert('Could not announce: ' + (e.message ?? e))
     } finally {
@@ -461,10 +479,44 @@ function AnnounceButton() {
     }
   }
 
+  const updateRoom = async () => {
+    const current = ann?.location ?? room() ?? ''
+    const input = prompt(
+      `New room / location for ${DAY_NAMES[next.day]} ${fmtDate(next.dateISO)} practice.\nThis re-posts to the attendance channel.`,
+      current,
+    )
+    if (input === null) return
+    const loc = input.trim()
+    if (!loc) return alert('Enter a room.')
+    if (loc === (ann?.location ?? '').trim()) return alert("That's already the announced room.")
+    setBusy(true)
+    try {
+      await supabase.from('attendance_announcements').upsert({ practice_date: next.dateISO, location: loc })
+      setBenching({ activeLocation: loc })
+      const { data, error } = await supabase.functions.invoke('attendance-notify', {
+        body: { kind: 'room-update', practice_date: next.dateISO, location: loc },
+      })
+      if (error || !data?.ok) throw new Error(error?.message ?? data?.error)
+      alert('Room change posted to the channel.')
+      loadAnn()
+    } catch (e) {
+      alert('Could not post the room change: ' + (e.message ?? e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <Button size="sm" variant="primary" disabled={busy} onClick={announce}>
-      {busy ? 'Announcing…' : '📣 Announce practice'}
-    </Button>
+    <>
+      <Button size="sm" variant="primary" disabled={busy || ann === undefined} onClick={announce}>
+        {busy ? 'Working…' : ann ? '📣 Re-announce' : '📣 Announce practice'}
+      </Button>
+      {ann && (
+        <Button size="sm" disabled={busy} onClick={updateRoom} title="Room changed? Re-post it to the channel.">
+          📍 Update room
+        </Button>
+      )}
+    </>
   )
 }
 

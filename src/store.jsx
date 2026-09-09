@@ -53,8 +53,14 @@ const DEFAULT_STATE = {
       { id: 'p-thu', day: 3, startMin: 19 * 60 },
       { id: 'p-sun', day: 6, startMin: 19 * 60 },
     ],
-    // Excuse form closes this many hours before a practice starts.
+    // Excuse form closes this many hours before a practice starts. After this,
+    // a member can no longer mark themselves late/absent — not showing without
+    // one on file is an unexcused no-show.
     excuseWindowHours: 5,
+    // When a session ends, auto-record everyone who didn't check in as a
+    // no-show, and fine the ones with no excuse on file this much.
+    autoFineNoShows: true,
+    noShowFine: 10,
     // Slack channel id for attendance announcements (bot must be in it).
     slackAttendanceChannel: '',
     // Default late-payment fine rule, overridable per fee category.

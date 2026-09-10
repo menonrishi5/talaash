@@ -456,13 +456,26 @@ function AnnounceControls() {
 
   const room = () => state.benching?.activeLocation ?? null
 
+  // The agenda the announcement will include — from the Practice Calendar.
+  const agendaLines = () =>
+    (state.practiceBlocks ?? [])
+      .filter((b) => b.date === next?.dateISO)
+      .sort((a, b) => a.startMin - b.startMin)
+      .map((b) => {
+        const seg = b.segmentId && state.segments.find((s) => s.id === b.segmentId)
+        return `• ${minToLabel(b.startMin)}–${minToLabel(b.endMin)} — ${seg ? seg.name : b.label || 'Practice'}`
+      })
+
   const announce = async () => {
     if (!next) return alert('Set up your practice schedule first.')
     if (!state.settings?.slackAttendanceChannel)
       return alert('Set the attendance Slack channel in Practice schedule first.')
     const r = room()
     const when = `${DAY_NAMES[next.day]} ${fmtDate(next.dateISO)} at ${minToLabel(next.startMin)}`
-    if (!confirm(`${ann ? 'Re-announce' : 'Announce'} ${when}${r ? ` · 📍 ${r}` : ''} to the team?`)) return
+    const lines = agendaLines()
+    const preview = `${ann ? 'Re-announce' : 'Announce'} ${when}${r ? ` · 📍 ${r}` : ''} to the team?` +
+      (lines.length ? `\n\nAgenda from the Practice Calendar:\n${lines.join('\n')}` : '\n\n(No blocks on the Practice Calendar for this date — add them there for a detailed message.)')
+    if (!confirm(preview)) return
     setBusy(true)
     try {
       await supabase.from('attendance_announcements').upsert({ practice_date: next.dateISO, location: r })

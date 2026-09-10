@@ -8,6 +8,9 @@
 //                    (settings.benchingAcceptDeadlineHours, default 12)
 //   day-of         : morning of (9 AM Chicago) to whoever is on duty
 //   hour-before    : ~60 min out to whoever is on duty
+// And for self-arranged cover swaps (cover_requests):
+//   cover-request  : you were asked to cover a specific teammate's slot
+//   cover-answered : the person you asked accepted or declined
 //
 // Members are reached via profiles.member_id -> account email -> Slack
 // users.lookupByEmail. Needs SLACK_BOT_TOKEN (scopes: chat:write,
@@ -88,12 +91,13 @@ Deno.serve(async (_req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const [{ data: stateRows }, { data: profiles }, { data: responses }, { data: log }] =
+    const [{ data: stateRows }, { data: profiles }, { data: responses }, { data: log }, { data: covers }] =
       await Promise.all([
         supabase.from("app_state").select("key,data").in("key", ["roster", "benching", "settings"]),
         supabase.from("profiles").select("member_id,email,slack_email").not("member_id", "is", null),
         supabase.from("slot_responses").select("*"),
-        supabase.from("notification_log").select("occ_key,kind"),
+        supabase.from("notification_log").select("occ_key,kind,detail"),
+        supabase.from("cover_requests").select("*"),
       ]);
 
     const roster = (stateRows?.find((r) => r.key === "roster")?.data ?? []) as
@@ -189,6 +193,38 @@ Deno.serve(async (_req) => {
         if (msUntil <= 75 * 60000 && msUntil > 0 && (accepted || reserveOn)) {
           queue("hour-before", onDutyId, `🚨 Benching in about an hour: ${when}.`);
         }
+      }
+    }
+
+    // ---- self-arranged cover swaps (cover_requests) ----
+    // DM the person asked when a request is opened, and the asker when it's
+    // answered. A 3-day recency guard keeps a first run after deploy from
+    // firing on old, already-settled requests.
+    const tmplById = new Map((benching.template ?? []).map((s) => [s.id, s]));
+    const recent = (ts: string | null) =>
+      ts != null && now.getTime() - new Date(ts).getTime() < 3 * 86400000;
+    for (const cr of covers ?? []) {
+      const slot = tmplById.get(cr.slot_id);
+      if (!slot) continue;
+      const when = `${DAY_NAMES[slot.day]} ${minLabel(slot.startMin)}–${minLabel(slot.endMin)}${loc}`;
+      const occ = `cover:${cr.id}`;
+      if (cr.status === "pending" && recent(cr.created_at) && !sent.has(`${occ}|cover-request`)) {
+        toSend.push({
+          memberId: cr.to_member_id, occ, kind: "cover-request",
+          text: `🔁 ${nameOf(cr.from_member_id)} asked you to cover their benching slot ${when}. ` +
+            `Accept or decline in Talaash HQ: ${appUrl}`,
+        });
+      }
+      if (
+        (cr.status === "accepted" || cr.status === "declined") &&
+        recent(cr.decided_at) && !sent.has(`${occ}|cover-answered`)
+      ) {
+        toSend.push({
+          memberId: cr.from_member_id, occ, kind: "cover-answered",
+          text: cr.status === "accepted"
+            ? `✅ ${nameOf(cr.to_member_id)} accepted your benching cover for ${when} — the slot and its hours are theirs now.`
+            : `❌ ${nameOf(cr.to_member_id)} can't cover your benching slot ${when} — you'll need another plan.`,
+        });
       }
     }
 

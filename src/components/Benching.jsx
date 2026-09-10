@@ -286,7 +286,8 @@ export default function Benching() {
 // letter for every week is derived from a single anchor Monday, so nobody
 // re-imports each week.
 function RotationControl({ weekISO, letter }) {
-  const { setRotationAnchor } = useStore()
+  const { state, setRotationAnchor } = useStore()
+  const anchor = state.benching.rotationAnchorISO
 
   if (!letter) {
     return (
@@ -311,9 +312,10 @@ function RotationControl({ weekISO, letter }) {
   return (
     <p className="px-5 pt-2 text-[11px] text-faint">
       A/B rotation on — the week shown above is <span className="font-semibold text-muted">Week {letter}</span>.{' '}
+      Anchored to {fmtWeekRange(anchor).split(' – ')[0]} (a Week A); the letter only changes if you flip it here.{' '}
       <button
         className="underline text-accent cursor-pointer"
-        onClick={() => setRotationAnchor(letter === 'A' ? addDaysISO(weekISO, -7) : weekISO)}
+        onClick={() => { if (confirm(`Flip the rotation? This week becomes Week ${letter === 'A' ? 'B' : 'A'} for everyone.`)) setRotationAnchor(letter === 'A' ? addDaysISO(weekISO, -7) : weekISO) }}
       >
         Flip A ↔ B
       </button>

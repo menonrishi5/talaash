@@ -92,9 +92,13 @@ Deno.serve(async (req) => {
     }
 
     const { data: stateRows } = await supabase
-      .from("app_state").select("key,data").in("key", ["roster", "benching", "settings"]);
+      .from("app_state").select("key,data")
+      .in("key", ["roster", "benching", "settings", "segments", "practiceBlocks"]);
     const get = (k: string) => stateRows?.find((r) => r.key === k)?.data;
     const roster = (get("roster") ?? []) as { id: string; name: string; active?: boolean }[];
+    const segments = (get("segments") ?? []) as { id: string; name: string }[];
+    const practiceBlocks = (get("practiceBlocks") ?? []) as
+      { id: string; date: string; startMin: number; endMin: number; segmentId?: string | null; label?: string | null }[];
     const settings = (get("settings") ?? {}) as {
       practiceSchedule?: { day: number; startMin: number }[];
       excuseWindowHours?: number;
@@ -118,9 +122,18 @@ Deno.serve(async (req) => {
       const { data: annRow } = await supabase
         .from("attendance_announcements").select("location").eq("practice_date", iso).maybeSingle();
       const room = (annRow?.location as string | undefined) ?? location;
+      // Agenda from the Practice Calendar for this date — a segment name, or
+      // the free-text note if the block isn't tied to a segment.
+      const segName = (id?: string | null) => segments.find((s) => s.id === id)?.name;
+      const agenda = practiceBlocks
+        .filter((b) => b.date === iso)
+        .sort((a, b) => a.startMin - b.startMin)
+        .map((b) => `• ${minLabel(b.startMin)}–${minLabel(b.endMin)} — ${segName(b.segmentId) ?? b.label ?? "Practice"}`)
+        .join("\n");
       const text =
         `🕺 *Practice ${fmtDate(iso)}${sm != null ? ` · ${minLabel(sm)}` : ""}*` +
         `${room ? ` · 📍 ${room}` : ""}\n` +
+        `${agenda ? agenda + "\n" : ""}` +
         `Check in when you arrive. Can't make it or running late? Fill out the excuse form ` +
         `by *${deadline}*.\n` +
         `📆 Have a conflict after 7? Update your availability so we can schedule around it: ${APP_URL}`;

@@ -166,22 +166,43 @@ export default function Roster() {
 // check-ins / fines / benching history onto the surviving member.
 function DuplicateReview() {
   const { state, mergeMembers } = useStore()
-  const [busy, setBusy] = useState(null)
+  const [busy, setBusy] = useState(null) // drop.id being merged, or 'all'
   const [err, setErr] = useState(null)
   const pairs = useMemo(() => duplicatePairs(state.roster), [state.roster])
   const ambiguous = useMemo(() => ambiguousBareNames(state.roster), [state.roster])
 
   if (pairs.length === 0 && ambiguous.length === 0) return null
 
-  const merge = async ({ keep, drop }) => {
-    if (!confirm(`Merge "${drop.name}" into "${keep.name}"? Their check-ins, fines and benching history move onto "${keep.name}", and "${drop.name}" is removed from the roster.`))
-      return
-    setBusy(drop.id)
-    setErr(null)
+  const mergeOne = async ({ keep, drop }) => {
     const { data, error } = await supabase.rpc('merge_members', { p_from: drop.id, p_to: keep.id })
-    setBusy(null)
-    if (error || !data?.ok) { setErr(error?.message ?? data?.error ?? 'Merge failed.'); return }
+    if (error || !data?.ok) throw new Error(error?.message ?? data?.error ?? 'Merge failed.')
     mergeMembers(drop.id, keep.id)
+  }
+
+  const merge = async (pair) => {
+    if (!confirm(`Merge "${pair.drop.name}" into "${pair.keep.name}"? Their check-ins, fines and benching history move onto "${pair.keep.name}", and "${pair.drop.name}" is removed from the roster.`))
+      return
+    setBusy(pair.drop.id)
+    setErr(null)
+    try { await mergeOne(pair) } catch (e) { setErr(e.message) }
+    setBusy(null)
+  }
+
+  const mergeAll = async () => {
+    if (!confirm(`Merge all ${pairs.length} pairs? Each keeps the fuller name; check-ins, fines and benching history follow.`)) return
+    setBusy('all')
+    setErr(null)
+    const snapshot = [...pairs]
+    for (let i = 0; i < snapshot.length; i++) {
+      try {
+        await mergeOne(snapshot[i])
+      } catch (e) {
+        setErr(`Stopped at "${snapshot[i].drop.name}" (${i} of ${snapshot.length} merged): ${e.message}`)
+        setBusy(null)
+        return
+      }
+    }
+    setBusy(null)
   }
 
   return (
@@ -195,9 +216,16 @@ function DuplicateReview() {
 
         {pairs.length > 0 && (
           <div>
-            <p className="text-[11px] uppercase tracking-wide text-faint font-medium mb-1.5">
-              Same person, two spellings ({pairs.length}) — merge keeps the fuller name
-            </p>
+            <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+              <p className="text-[11px] uppercase tracking-wide text-faint font-medium">
+                Same person, two spellings ({pairs.length}) — merge keeps the fuller name
+              </p>
+              {pairs.length > 1 && (
+                <Button size="sm" disabled={!!busy} onClick={mergeAll}>
+                  {busy === 'all' ? 'Merging all…' : `Merge all ${pairs.length}`}
+                </Button>
+              )}
+            </div>
             <ul className="divide-y divide-line">
               {pairs.map(({ keep, drop }) => (
                 <li key={drop.id + keep.id} className="py-2.5 flex items-center gap-3 flex-wrap text-sm">
@@ -206,7 +234,7 @@ function DuplicateReview() {
                     <span className="text-faint"> → </span>
                     <span className="font-medium">{keep.name}</span>
                   </span>
-                  <Button size="sm" variant="primary" disabled={busy === drop.id} onClick={() => merge({ keep, drop })}>
+                  <Button size="sm" variant="primary" disabled={!!busy} onClick={() => merge({ keep, drop })}>
                     {busy === drop.id ? 'Merging…' : `Merge → ${keep.name}`}
                   </Button>
                 </li>

@@ -37,6 +37,7 @@ guessing from what the app seems to do.
 | 21 | `migration-21-fix-request-cover-roster.sql` | Fixes `request_cover()` reading the roster doc one level too deep, so the active-member check always failed. | ✅ *(confirmed run 2026-09)* |
 | 22 | `migration-22-checkin-lateness-and-merge.sql` | `check_in()`: a late-arrival excuse can only relax the on-time cutoff, never make you more late than a teammate who filed nothing. Adds `merge_members(from, to)` to fold a duplicate roster member's check-ins/fines/benching history onto the real one. | ✅ *(confirmed run 2026-09)* |
 | 23 | `migration-23-announcement-location.sql` | Adds `attendance_announcements.location` so a practice's room is remembered at announce time and can be changed + re-posted to Slack afterwards. Pairs with an `attendance-notify` redeploy (new `room-update` mode). | ✅ *(confirmed run 2026-09, function redeployed)* |
+| 24 | `migration-24-merge-members-checkin-collision.sql` | `merge_members()` no longer errors on `checkins_session_id_member_id_key` when both members have a check-in for the same session — moves the non-colliding rows and keeps the stronger row (real check-in / fined) for shared sessions. | ⬜ |
 
 Everything through #18 is assumed applied because the app is live and
 working end to end on it — **but this file is the first time that's been

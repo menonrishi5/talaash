@@ -916,7 +916,7 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
   }
 
   const deleteSession = async () => {
-    if (!confirm('Delete today\'s session ENTIRELY? All of today\'s check-ins and fines go with it. To just close check-in, use End session instead.')) return
+    if (!confirm('Delete today\'s session ENTIRELY? All of today\'s check-ins and fines go with it. To just close check-in, use End session instead — if you delete and start a new one for today, ending it will fine every no-show again.')) return
     await supabase.from('attendance_sessions').delete().eq('id', session.id)
     refresh()
   }
@@ -1289,39 +1289,43 @@ function ZeffyFines() {
 function Ledger() {
   const { state } = useStore()
   const [rows, setRows] = useState(null)
+  const [openMember, setOpenMember] = useState(null) // {id, name}
 
-  useEffect(() => {
-    ;(async () => {
-      const [{ data: fines }, { data: pays }] = await Promise.all([
-        supabase.from('checkins').select('member_id, member_name, fine, no_show, fine_pending'),
-        supabase.from('payments').select('member_id, amount'),
-      ])
-      if (!fines) return
-      const acc = {}
-      const bump = (id, name) => (acc[id] = acc[id] || { id, name, attended: 0, fined: 0, paid: 0 })
-      for (const c of fines) {
-        const r = bump(c.member_id, c.member_name)
-        if (!c.no_show) r.attended += 1
-        if (!c.fine_pending) r.fined += Number(c.fine) // pending fines don't count yet
-        r.name = c.member_name
-      }
-      for (const p of pays || []) {
-        if (!p.member_id) continue
-        bump(p.member_id, '').paid += Number(p.amount)
-      }
-      // pick up roster names for payment-only rows
-      for (const r of Object.values(acc)) {
-        if (!r.name) r.name = state.roster.find((m) => m.id === r.id)?.name ?? 'Unknown'
-      }
-      setRows(Object.values(acc).sort((a, b) => (b.fined - b.paid) - (a.fined - a.paid)))
-    })()
+  const load = useCallback(async () => {
+    const [{ data: fines }, { data: pays }] = await Promise.all([
+      supabase.from('checkins').select('member_id, member_name, fine, no_show, fine_pending'),
+      supabase.from('payments').select('member_id, amount'),
+    ])
+    if (!fines) return
+    const acc = {}
+    const bump = (id, name) => (acc[id] = acc[id] || { id, name, attended: 0, fined: 0, paid: 0 })
+    for (const c of fines) {
+      const r = bump(c.member_id, c.member_name)
+      if (!c.no_show) r.attended += 1
+      if (!c.fine_pending) r.fined += Number(c.fine) // pending fines don't count yet
+      r.name = c.member_name
+    }
+    for (const p of pays || []) {
+      if (!p.member_id) continue
+      bump(p.member_id, '').paid += Number(p.amount)
+    }
+    // pick up roster names for payment-only rows
+    for (const r of Object.values(acc)) {
+      if (!r.name) r.name = state.roster.find((m) => m.id === r.id)?.name ?? 'Unknown'
+    }
+    setRows(Object.values(acc).sort((a, b) => (b.fined - b.paid) - (a.fined - a.paid)))
   }, [state.roster])
+
+  useEffect(() => { load() }, [load])
 
   if (!rows || rows.length === 0) return null
 
   return (
     <Card className="mb-5">
-      <CardHeader title="Fines ledger" subtitle="All-time totals — never resets. Payments come off the outstanding balance." />
+      <CardHeader
+        title="Fines ledger"
+        subtitle="All-time totals — never resets. Payments come off the outstanding balance. Click a member to edit or remove individual fines."
+      />
       <div className="px-5 pb-5 overflow-x-auto thin-scroll">
         <table className="w-full text-sm">
           <thead>
@@ -1337,8 +1341,13 @@ function Ledger() {
             {rows.map((r) => {
               const due = r.fined - r.paid
               return (
-                <tr key={r.id}>
-                  <td className="py-2 pr-3 font-medium text-ink">{r.name}</td>
+                <tr
+                  key={r.id}
+                  className="cursor-pointer hover:bg-subtle"
+                  onClick={() => setOpenMember({ id: r.id, name: r.name })}
+                  title="Edit or remove this member's fines"
+                >
+                  <td className="py-2 pr-3 font-medium text-ink underline decoration-dotted underline-offset-2">{r.name}</td>
                   <td className="py-2 pr-3 text-muted">{r.attended}</td>
                   <td className="py-2 pr-3 text-muted">{money(r.fined)}</td>
                   <td className="py-2 pr-3 text-muted">{money(r.paid)}</td>
@@ -1353,7 +1362,150 @@ function Ledger() {
           </tbody>
         </table>
       </div>
+      {openMember && (
+        <MemberFineHistoryModal
+          member={openMember}
+          onClose={() => setOpenMember(null)}
+          onChanged={load}
+        />
+      )}
     </Card>
+  )
+}
+
+// Every check-in a member has, editor-only: adjust or waive a fine, or
+// remove a bogus row entirely (e.g. a duplicate no-show from a session that
+// got started twice for the same date).
+function MemberFineHistoryModal({ member, onClose, onChanged }) {
+  const [rows, setRows] = useState(null)
+  const [sel, setSel] = useState(() => new Set())
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    const { data } = await supabase
+      .from('checkins')
+      .select('*, attendance_sessions(session_date)')
+      .eq('member_id', member.id)
+      .order('checked_at', { ascending: false })
+    setRows(data ?? [])
+  }, [member.id])
+  useEffect(() => { load() }, [load])
+
+  const toggle = (id) =>
+    setSel((s) => {
+      const n = new Set(s)
+      n.has(id) ? n.delete(id) : n.add(id)
+      return n
+    })
+
+  const setFine = async (c, fine) => {
+    const { error } = await supabase.from('checkins').update({ fine, fine_pending: false }).eq('id', c.id)
+    if (error) { alert('Could not update: ' + error.message); return }
+    load()
+    onChanged()
+  }
+
+  const removeOne = async (c) => {
+    if (!confirm(`Remove this ${fmtDate(c.attendance_sessions?.session_date ?? '')} record entirely? This can't be undone.`)) return
+    const { error } = await supabase.from('checkins').delete().eq('id', c.id)
+    if (error) { alert('Could not remove: ' + error.message); return }
+    load()
+    onChanged()
+  }
+
+  const removeSelected = async () => {
+    if (sel.size === 0) return
+    if (!confirm(`Remove ${sel.size} record${sel.size > 1 ? 's' : ''} entirely? This can't be undone.`)) return
+    setBusy(true)
+    const { error } = await supabase.from('checkins').delete().in('id', [...sel])
+    setBusy(false)
+    if (error) { alert('Could not remove: ' + error.message); return }
+    setSel(new Set())
+    load()
+    onChanged()
+  }
+
+  return (
+    <Modal title={`${member.name} — attendance history`} onClose={onClose} wide>
+      {rows === null ? (
+        <p className="text-sm text-faint">Loading…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-faint italic">No check-ins yet.</p>
+      ) : (
+        <>
+          {sel.size > 0 && (
+            <div className="flex justify-end mb-2">
+              <Button size="sm" variant="danger" disabled={busy} onClick={removeSelected}>
+                Remove {sel.size} selected
+              </Button>
+            </div>
+          )}
+          <ul className="divide-y divide-line max-h-[28rem] overflow-y-auto">
+            {rows.map((c) => (
+              <li key={c.id} className="py-2.5 flex items-center gap-2 flex-wrap text-sm">
+                <input type="checkbox" className="shrink-0" checked={sel.has(c.id)} onChange={() => toggle(c.id)} />
+                <span className="w-16 shrink-0 text-xs text-muted">
+                  {c.attendance_sessions?.session_date ? fmtDate(c.attendance_sessions.session_date) : '—'}
+                </span>
+                <span className="flex-1 min-w-32 text-ink">
+                  {c.no_show ? 'did not check in' : `checked in ${fmtTeamTime(c.checked_at)}`}
+                </span>
+                {c.no_show
+                  ? (Number(c.fine) > 0
+                      ? <Badge className="bg-bad-soft text-bad">no-show</Badge>
+                      : <Badge className="bg-subtle text-muted">excused</Badge>)
+                  : c.mins_late > 0
+                    ? <Badge className="bg-warn-soft text-warn">{c.mins_late} min late</Badge>
+                    : <Badge className="bg-good-soft text-good">on time</Badge>}
+                <FineEditor checkin={c} onSave={(fine) => setFine(c, fine)} />
+                <button
+                  className="text-xs text-faint hover:text-bad cursor-pointer shrink-0"
+                  title="Remove this record entirely"
+                  onClick={() => removeOne(c)}
+                >✕</button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <div className="flex justify-end mt-4">
+        <Button onClick={onClose}>Close</Button>
+      </div>
+    </Modal>
+  )
+}
+
+// Inline editable fine amount + a one-click waive, for MemberFineHistoryModal.
+function FineEditor({ checkin, onSave }) {
+  const [val, setVal] = useState(String(checkin.fine))
+  useEffect(() => setVal(String(checkin.fine)), [checkin.id, checkin.fine])
+
+  const commit = () => {
+    const n = Number(val)
+    if (Number.isNaN(n) || n < 0) { setVal(String(checkin.fine)); return }
+    if (n !== Number(checkin.fine)) onSave(n)
+  }
+
+  return (
+    <span className="flex items-center gap-1 shrink-0">
+      <span className="text-xs text-faint">$</span>
+      <input
+        type="number" min="0" step="0.01"
+        className="w-16 px-1.5 py-1 text-xs bg-surface border border-line-strong rounded-lg"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+      />
+      {Number(checkin.fine) > 0 && (
+        <button
+          className="text-[11px] text-faint hover:text-ink underline cursor-pointer"
+          onClick={() => onSave(0)}
+        >
+          waive
+        </button>
+      )}
+    </span>
   )
 }
 

@@ -74,13 +74,19 @@ async function slack(method: string, params: Record<string, unknown>) {
   return await res.json();
 }
 
-const slackIdCache = new Map<string, string | null>();
-async function slackIdForEmail(email: string): Promise<string | null> {
-  if (slackIdCache.has(email)) return slackIdCache.get(email)!;
+// Cache the raw Slack error (not just null) so a systemic problem -- a bad
+// token, a missing scope, rate-limiting -- is distinguishable in
+// notification_log from a genuine "that email isn't in the workspace".
+// Conflating the two used to log every failure as "no slack user for X",
+// which looked like an email-matching problem even when it was really the
+// bot token itself.
+const slackLookupCache = new Map<string, { id: string | null; error: string | null }>();
+async function slackIdForEmail(email: string): Promise<{ id: string | null; error: string | null }> {
+  if (slackLookupCache.has(email)) return slackLookupCache.get(email)!;
   const r = await slack("users.lookupByEmail", { email });
-  const id = r.ok ? r.user.id : null;
-  slackIdCache.set(email, id);
-  return id;
+  const result = r.ok ? { id: r.user.id as string, error: null } : { id: null, error: (r.error as string) ?? "unknown_error" };
+  slackLookupCache.set(email, result);
+  return result;
 }
 
 Deno.serve(async (_req) => {
@@ -233,13 +239,15 @@ Deno.serve(async (_req) => {
       const email = emailByMember[n.memberId];
       let detail = "no linked account";
       if (email) {
-        const slackId = await slackIdForEmail(email);
+        const { id: slackId, error: lookupError } = await slackIdForEmail(email);
         if (slackId) {
           const r = await slack("chat.postMessage", { channel: slackId, text: n.text });
           detail = r.ok ? "sent" : `slack error: ${r.error}`;
           if (r.ok) delivered++;
         } else {
-          detail = `no slack user for ${email}`;
+          detail = lookupError === "users_not_found"
+            ? `no slack user for ${email}`
+            : `slack lookup failed for ${email}: ${lookupError}`;
         }
       }
       // Upsert (updating detail on conflict) so a later success flips an

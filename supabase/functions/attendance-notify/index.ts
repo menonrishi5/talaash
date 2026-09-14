@@ -59,14 +59,19 @@ async function callerIsEditor(req: Request): Promise<boolean> {
   return !error && data === true;
 }
 
+// Form-encoded, not JSON: users.lookupByEmail (used in dmEditors) rejects a
+// JSON body with invalid_arguments. Form-encoding works for every Slack Web
+// API method used here.
 async function slack(method: string, params: Record<string, unknown>) {
+  const body = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v != null) body.set(k, String(v));
   const res = await fetch(`https://slack.com/api/${method}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${Deno.env.get("SLACK_BOT_TOKEN")}`,
-      "Content-Type": "application/json; charset=utf-8",
+      "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
     },
-    body: JSON.stringify(params),
+    body: body.toString(),
   });
   return await res.json();
 }

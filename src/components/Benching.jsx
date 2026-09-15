@@ -382,6 +382,18 @@ function MyBenching({ responses, onChanged, coverRequests = [], onCoverChanged }
     else onChanged()
   }
 
+  // A misclicked "Can't make it" isn't final — accepting again is always
+  // allowed (the RPC has no restriction). Only warn if the reserve already
+  // agreed to cover, since un-declining then desyncs from them.
+  const undoDecline = (occ) => {
+    if (occ.resp?.reserve_status === 'accepted') {
+      if (!confirm(
+        `${nameOf(occ.slot.reserveId)} already agreed to cover this for you. If you take the slot back, message them directly so you don't both show up — or both skip it. Continue?`,
+      )) return
+    }
+    respond(occ, 'primary', 'accepted')
+  }
+
   const sendCoverRequest = async (occ) => {
     if (!pickTarget) return
     const key = `${occ.wkISO}:${occ.slot.id}`
@@ -471,9 +483,14 @@ function MyBenching({ responses, onChanged, coverRequests = [], onCoverChanged }
                       </Button>
                     </>
                   ) : occ.resp?.status === 'declined' ? (
-                    <Badge className="bg-subtle text-muted">
-                      declined{occ.slot.reserveId ? ` — passed to ${nameOf(occ.slot.reserveId)}` : ''}
-                    </Badge>
+                    <>
+                      <Badge className="bg-subtle text-muted">
+                        declined{occ.slot.reserveId ? ` — passed to ${nameOf(occ.slot.reserveId)}` : ''}
+                      </Badge>
+                      <Button size="sm" variant="ghost" disabled={busy === key} onClick={() => undoDecline(occ)}>
+                        Misclick? Accept after all
+                      </Button>
+                    </>
                   ) : occ.reserveOn ? (
                     <Badge className="bg-warn-soft text-warn">
                       deadline passed — {occ.slot.reserveId ? `${nameOf(occ.slot.reserveId)} called` : 'uncovered'}
@@ -498,7 +515,12 @@ function MyBenching({ responses, onChanged, coverRequests = [], onCoverChanged }
                       </Button>
                     </>
                   ) : occ.resp?.reserve_status === 'declined' ? (
-                    <Badge className="bg-bad-soft text-bad">declined — slot needs cover</Badge>
+                    <>
+                      <Badge className="bg-bad-soft text-bad">declined — slot needs cover</Badge>
+                      <Button size="sm" variant="ghost" disabled={busy === key} onClick={() => respond(occ, 'reserve', 'accepted')}>
+                        Misclick? Can cover after all
+                      </Button>
+                    </>
                   ) : (
                     <>
                       <Badge className="bg-info-soft text-info">🔁 you're up</Badge>

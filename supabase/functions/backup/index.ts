@@ -8,6 +8,9 @@ const TABLES = [
   "app_state", "attendance_sessions", "session_secrets", "checkins",
   "payments", "zeffy_payments", "reimbursements", "slot_responses",
   "venmo_transactions", "profiles", "notification_log",
+  // Added by later migrations (13, 17, 20, 14) but never added here — a
+  // restore from an older backup would have come back with these empty.
+  "excuses", "member_availability", "cover_requests", "attendance_announcements",
 ];
 
 Deno.serve(async (_req) => {

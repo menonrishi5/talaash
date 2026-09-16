@@ -50,10 +50,33 @@ function buildMatcher(
   };
 }
 
+// Only editors may trigger a sync — it's client-invoked (the "Sync Zeffy"
+// button, and the auto-resync after relinking a buyer), never cron, so
+// nothing calls it without a real user. Without this, anyone holding the
+// public anon key (no login needed) could hit the function directly and
+// force repeated syncs against the Zeffy API.
+async function callerIsEditor(req: Request): Promise<boolean> {
+  const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+  if (!jwt) return false;
+  const asUser = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!,
+    { global: { headers: { Authorization: `Bearer ${jwt}` } } },
+  );
+  const { data, error } = await asUser.rpc("is_editor");
+  return !error && data === true;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   try {
+    if (!(await callerIsEditor(req))) {
+      return new Response(JSON.stringify({ ok: false, error: "Editors only." }), {
+        status: 403, headers: { ...cors, "Content-Type": "application/json" },
+      });
+    }
+
     const zeffyKey = Deno.env.get("ZEFFY_API_KEY");
     if (!zeffyKey) throw new Error("ZEFFY_API_KEY secret is not set");
 

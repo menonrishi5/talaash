@@ -66,30 +66,27 @@ Deno.serve(async (_req) => {
     const template = (benching.template ?? [])
       .filter((s) => !letter || !s.week || s.week === letter)
       .sort((a, b) => a.day - b.day || a.startMin - b.startMin);
+    // Slots are on duty by default — a row only exists here when someone
+    // explicitly passed theirs along or rejected it outright.
     const uncovered: string[] = [];
-    const unaccepted: string[] = [];
-    let accepted = 0;
+    let covered = 0;
     for (const slot of template) {
       const when = `${DAY_NAMES[slot.day]} ${minLabel(slot.startMin)}–${minLabel(slot.endMin)}`;
       const r = respBySlot[slot.id];
-      if (weekOv[slot.id]?.status === "uncovered") {
-        uncovered.push(`• ${when} — was ${nameOf(slot.memberId)}`);
-      } else if (r?.reserve_status === "declined") {
-        uncovered.push(`• ${when} — ${nameOf(slot.memberId)} declined AND reserve ${nameOf(slot.reserveId)} declined`);
-      } else if (r?.status === "accepted" || r?.reserve_status === "accepted") {
-        accepted++;
-      } else if (r?.status === "declined") {
-        unaccepted.push(`• ${when} — ${nameOf(slot.memberId)} declined${slot.reserveId ? `, reserve ${nameOf(slot.reserveId)} hasn't confirmed` : " (no reserve!)"}`);
+      const passed = r?.status === "declined";
+      const reserveRejected = r?.reserve_status === "declined";
+      const isUncovered = weekOv[slot.id]?.status === "uncovered" || (passed && (reserveRejected || !slot.reserveId));
+      if (isUncovered) {
+        uncovered.push(`• ${when} — was ${nameOf(slot.memberId)}${slot.reserveId && reserveRejected ? ` (reserve ${nameOf(slot.reserveId)} also can't)` : ""}`);
       } else {
-        unaccepted.push(`• ${when} — ${nameOf(slot.memberId)} hasn't accepted`);
+        covered++;
       }
     }
 
     let text = `*🪑 Benching this week* (${weekISO}${letter ? ` · Week ${letter}` : ""})${benching.activeLocation ? ` · 📍 ${benching.activeLocation}` : ""}\n`;
-    text += `${accepted}/${template.length} slots confirmed.\n`;
+    text += `${covered}/${template.length} slots covered.\n`;
     if (uncovered.length) text += `\n*⚠️ Uncovered (${uncovered.length}):*\n${uncovered.join("\n")}\n`;
-    if (unaccepted.length) text += `\n*Needs attention (${unaccepted.length}):*\n${unaccepted.join("\n")}\n`;
-    if (!uncovered.length && !unaccepted.length) text += `\n✅ Everything's covered — nice.`;
+    else text += `\n✅ Everything's covered — nice.`;
 
     const res = await fetch("https://slack.com/api/chat.postMessage", {
       method: "POST",

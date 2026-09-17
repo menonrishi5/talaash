@@ -42,8 +42,6 @@ const DEFAULT_STATE = {
   settings: {
     // Is the left of the forms-PDF page the performers' stage left?
     pdfLeftIsStageLeft: true,
-    // Unaccepted benching slots pass to the reserve this many hours before start.
-    benchingAcceptDeadlineHours: 12,
     // Slack channel id for the weekly benching digest (bot must be in it).
     slackDigestChannel: '',
     // Weekly practice schedule: [{id, day:0-6 (Mon=0), startMin}]. Anchors the

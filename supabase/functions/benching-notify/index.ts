@@ -1,13 +1,16 @@
 // Benching notification engine. Deploy as edge function "benching-notify";
 // a pg_cron job (migration-5) invokes it every 10 minutes.
 //
-// Sends Slack DMs for each upcoming benching slot occurrence:
-//   accept-request : slot enters the 48h window, member hasn't responded
-//   day-before     : ~24h out — reminder if accepted, nag if not
-//   reserve-called : declined, or unaccepted past the accept deadline
-//                    (settings.benchingAcceptDeadlineHours, default 12)
+// Slots are on duty by default — nobody has to accept. Sends Slack DMs for
+// each upcoming occurrence:
+//   accept-request : slot enters the 48h window — a heads-up, not a request
+//                    (kind name kept as-is so dedup keys don't churn)
+//   day-before     : ~24h out — reminder to whoever's on duty
+//   reserve-called : the assigned member explicitly passed it to the reserve
 //   day-of         : morning of (9 AM Chicago) to whoever is on duty
 //   hour-before    : ~60 min out to whoever is on duty
+// None of these fire once a slot's been explicitly left unclaimed (either
+// side rejected it outright, or the reserve also declined a pass-along).
 // And for self-arranged cover swaps (cover_requests):
 //   cover-request  : you were asked to cover a specific teammate's slot
 //   cover-answered : the person you asked accepted or declined
@@ -131,10 +134,6 @@ Deno.serve(async (_req) => {
       const L = weekLetter(mondayISO);
       return (benching.template ?? []).filter((s) => !L || !s.week || s.week === L);
     };
-    const settings = (stateRows?.find((r) => r.key === "settings")?.data ?? {}) as
-      { benchingAcceptDeadlineHours?: number };
-    const deadlineH = settings.benchingAcceptDeadlineHours ?? 12;
-
     // Prefer an explicitly-set Slack email, fall back to the login email.
     const emailByMember: Record<string, string> = {};
     for (const p of profiles ?? []) emailByMember[p.member_id] = p.slack_email || p.email;
@@ -161,11 +160,15 @@ Deno.serve(async (_req) => {
 
         const occ = `${wk.iso}:${slot.id}`;
         const resp = respByOcc[occ];
-        const accepted = resp?.status === "accepted";
-        const declined = resp?.status === "declined";
-        const reserveDeclined = (resp as { reserve_status?: string } | undefined)?.reserve_status === "declined";
-        const pastDeadline = msUntil < deadlineH * 3600000;
-        const reserveOn = (declined || (!accepted && pastDeadline && slot.reserveId)) && !reserveDeclined;
+        // On duty by default — nobody has to accept. "declined" means the
+        // assigned member explicitly passed it to the reserve; from there
+        // the reserve is on duty by default too, unless either side used
+        // "leave unclaimed" (which sets both status and reserve_status to
+        // declined in one step) or there's no reserve to pass to.
+        const passed = resp?.status === "declined";
+        const reserveRejected = (resp as { reserve_status?: string } | undefined)?.reserve_status === "declined";
+        const uncovered = passed && (reserveRejected || !slot.reserveId);
+        const reserveOn = passed && !uncovered;
         const onDutyId = reserveOn ? slot.reserveId! : slot.memberId;
         const when = `${DAY_NAMES[slot.day]} ${minLabel(slot.startMin)}–${minLabel(slot.endMin)}${loc}`;
 
@@ -173,35 +176,31 @@ Deno.serve(async (_req) => {
           if (!sent.has(`${occ}|${kind}`)) toSend.push({ memberId, occ, kind, text });
         };
 
-        // accept-request: entering the 48h window, no response yet
-        // ('pending' rows exist when only the reserve has answered)
-        if ((!resp || resp.status === "pending") && msUntil <= 48 * 3600000) {
+        // heads-up: entering the 48h window — a plain notice, not a request
+        // to accept. Kept as "accept-request" so dedup keys don't churn.
+        if (!passed && msUntil <= 48 * 3600000) {
           queue("accept-request", slot.memberId,
-            `🪑 You have a benching slot ${when}. Please accept (or decline) it in Talaash HQ: ${appUrl}`);
+            `🪑 You're on benching duty ${when}. No action needed unless you can't make it — you can pass it to your reserve, arrange a specific cover, or leave it unclaimed in Talaash HQ: ${appUrl}`);
         }
-        // day-before (~24h out)
-        if (msUntil <= 26 * 3600000 && msUntil > 20 * 3600000) {
-          if (accepted) {
-            queue("day-before", slot.memberId, `⏰ Reminder: benching tomorrow, ${when}.`);
-          } else if (!declined) {
-            queue("day-before", slot.memberId,
-              `⚠️ You still haven't accepted your benching slot ${when}. If it's not accepted ${deadlineH}h before, your reserve gets called. ${appUrl}`);
-          }
+        // day-before (~24h out) — a reminder to whoever's on duty, unless
+        // the slot's been left fully unclaimed.
+        if (msUntil <= 26 * 3600000 && msUntil > 20 * 3600000 && !uncovered) {
+          queue("day-before", onDutyId, `⏰ Reminder: benching tomorrow, ${when}.`);
         }
-        // reserve called (decline, or silent past deadline)
+        // reserve on duty — the assigned member explicitly passed it along
         if (reserveOn) {
           queue("reserve-called", slot.reserveId!,
-            `🔁 You're up! ${nameOf(slot.memberId)} ${declined ? "declined" : "didn't accept"} the benching slot ${when} — you're covering as reserve.`);
+            `🔁 ${nameOf(slot.memberId)} passed you their benching slot ${when} — you're covering it now.`);
           queue("reserve-passed", slot.memberId,
             `Your benching slot ${when} was passed to your reserve (${nameOf(slot.reserveId)}).`);
         }
         // day-of: after 9 AM Chicago on the slot's day
         const nineAm = chicagoDate(wk.y, wk.mo, wk.d + slot.day, 9 * 60);
-        if (now >= nineAm && msUntil > 0 && (accepted || reserveOn)) {
+        if (now >= nineAm && msUntil > 0 && !uncovered) {
           queue("day-of", onDutyId, `📅 Benching today: ${when}.`);
         }
         // hour-before
-        if (msUntil <= 75 * 60000 && msUntil > 0 && (accepted || reserveOn)) {
+        if (msUntil <= 75 * 60000 && msUntil > 0 && !uncovered) {
           queue("hour-before", onDutyId, `🚨 Benching in about an hour: ${when}.`);
         }
       }

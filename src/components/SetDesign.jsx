@@ -5,7 +5,7 @@ import { putFile, deleteFile, fileURL } from '../fileStore.js'
 import { uid, segColor, MIX_STATUSES, SIDES, sideLabel } from '../lib.js'
 import { isActive } from '../matching.js'
 import { readFormPages, detectMemberSides, pageToStage } from '../formReader.js'
-import { Button, Card, CardHeader, Badge, Select, TextInput, EmptyState, Modal, PageHeader } from './ui.jsx'
+import { Button, Card, CardHeader, Badge, Select, TextInput, EmptyState, Modal, Field, PageHeader } from './ui.jsx'
 import PdfViewer from './PdfViewer.jsx'
 
 function UploadButton({ accept, label, onFile }) {
@@ -146,8 +146,8 @@ function SegmentDetail({ segment }) {
   const [showCast, setShowCast] = useState(false)
 
   const deleteSegment = async () => {
-    if (!confirm(`Delete "${segment.name}"? Its forms PDF, mix and practice history go with it.`)) return
-    await deleteFile(segment.pdf?.fileId)
+    if (!confirm(`Delete "${segment.name}"? Its forms PDFs, mix and practice history go with it.`)) return
+    await Promise.all(getPdfs(segment).map((p) => deleteFile(p.fileId)))
     await deleteFile(segment.audio?.fileId)
     removeSegment(segment.id)
   }
@@ -194,78 +194,105 @@ function SegmentDetail({ segment }) {
   )
 }
 
-// ---- Forms PDF ----
+// ---- Forms PDFs (a segment can have several — e.g. two casts, or a
+// separate spacing chart) ----
+
+// `pdfs` is the array going forward; `pdf` is the old single-file shape from
+// before this supported more than one. Read through this everywhere so
+// existing segments don't lose their upload.
+const getPdfs = (segment) => segment.pdfs ?? (segment.pdf ? [segment.pdf] : [])
+
+const PdfIcon = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" />
+    <path d="M14 3v5h5" />
+  </svg>
+)
 
 function FormsCard({ segment }) {
   const { updateSegment } = useStore()
   const { canEdit } = useAuth()
-  const [viewing, setViewing] = useState(false)
-  const url = fileURL(segment.pdf?.fileId)
+  const [viewing, setViewing] = useState(null) // the pdf {fileId,name} being viewed
+  const pdfs = getPdfs(segment)
+
+  // Always write the new array shape; clear the legacy singular field so
+  // there's only ever one source of truth going forward.
+  const save = (next) => updateSegment(segment.id, { pdfs: next, pdf: null })
 
   const upload = async (file) => {
     const id = uid()
     await putFile(id, file)
-    await deleteFile(segment.pdf?.fileId)
-    updateSegment(segment.id, { pdf: { fileId: id, name: file.name } })
+    save([...pdfs, { fileId: id, name: file.name }])
   }
 
-  const remove = async () => {
-    if (!confirm('Remove the forms PDF?')) return
-    await deleteFile(segment.pdf?.fileId)
-    updateSegment(segment.id, { pdf: null })
+  const replace = async (old, file) => {
+    const id = uid()
+    await putFile(id, file)
+    await deleteFile(old.fileId)
+    save(pdfs.map((p) => (p.fileId === old.fileId ? { fileId: id, name: file.name } : p)))
+    if (viewing?.fileId === old.fileId) setViewing(null)
+  }
+
+  const remove = async (pdf) => {
+    if (!confirm(`Remove "${pdf.name}"?`)) return
+    await deleteFile(pdf.fileId)
+    save(pdfs.filter((p) => p.fileId !== pdf.fileId))
+    if (viewing?.fileId === pdf.fileId) setViewing(null)
   }
 
   return (
     <Card>
       <CardHeader
-        title="Forms (ArrangeUs PDF)"
-        subtitle={segment.pdf ? segment.pdf.name : 'Export your forms from ArrangeUs as a PDF and upload it here.'}
+        title={`Forms (ArrangeUs PDF)${pdfs.length > 1 ? ` · ${pdfs.length}` : ''}`}
+        subtitle={pdfs.length
+          ? `${pdfs.length} file${pdfs.length > 1 ? 's' : ''} uploaded`
+          : 'Export your forms from ArrangeUs as a PDF and upload them here.'}
         actions={
           canEdit ? (
-            <div className="flex gap-2">
-              <UploadButton accept="application/pdf" label={segment.pdf ? 'Replace PDF' : 'Upload PDF'} onFile={upload} />
-              {segment.pdf && <Button size="sm" variant="ghost" className="text-bad" onClick={remove}>Remove</Button>}
-            </div>
+            <UploadButton accept="application/pdf" label={pdfs.length ? '+ Add another PDF' : 'Upload PDF'} onFile={upload} />
           ) : null
         }
       />
-      {segment.pdf ? (
-        url ? (
-          <div className="px-5 pb-5">
-            <button
-              onClick={() => setViewing(true)}
-              className="w-full flex items-center gap-3 p-3 rounded-xl border border-line bg-subtle hover:border-faint text-left cursor-pointer transition-colors"
-            >
-              <span className="w-10 h-12 rounded-md bg-surface border border-line flex items-center justify-center shrink-0 text-bad">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" />
-                  <path d="M14 3v5h5" />
-                </svg>
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-sm font-medium text-ink truncate">{segment.pdf.name}</span>
-                <span className="block text-xs text-muted">Tap to view the forms</span>
-              </span>
-              <span className="text-xs font-medium text-accent shrink-0">Open</span>
-            </button>
-          </div>
-        ) : (
-          <div className="px-5 pb-5 text-sm text-faint">Loading PDF…</div>
-        )
+      {pdfs.length > 0 ? (
+        <ul className="px-5 pb-5 space-y-2">
+          {pdfs.map((pdf) => {
+            const url = fileURL(pdf.fileId)
+            return (
+              <li key={pdf.fileId} className="flex items-center gap-3 p-3 rounded-xl border border-line bg-subtle">
+                <span className="w-9 h-11 rounded-md bg-surface border border-line flex items-center justify-center shrink-0 text-bad">
+                  <PdfIcon />
+                </span>
+                <button
+                  disabled={!url}
+                  onClick={() => url && setViewing(pdf)}
+                  className="flex-1 min-w-0 text-left cursor-pointer disabled:cursor-default"
+                >
+                  <span className="block text-sm font-medium text-ink truncate">{pdf.name}</span>
+                  <span className="block text-xs text-muted">{url ? 'Tap to view' : 'Loading…'}</span>
+                </button>
+                {canEdit && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <UploadButton accept="application/pdf" label="Replace" onFile={(f) => replace(pdf, f)} />
+                    <button
+                      className="text-faint hover:text-bad cursor-pointer text-xs"
+                      title="Remove this PDF"
+                      onClick={() => remove(pdf)}
+                    >✕</button>
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
       ) : (
         <EmptyState
-          icon={
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" />
-              <path d="M14 3v5h5" />
-            </svg>
-          }
+          icon={<PdfIcon size={20} />}
           title="No forms uploaded"
-          hint="Upload the segment's formation PDF — everyone can open it from here, on any device."
+          hint="Upload the segment's formation PDF — everyone can open it from here, on any device. Add more than one if you need to (e.g. separate casts)."
         />
       )}
-      {viewing && url && (
-        <PdfViewer url={url} name={segment.pdf?.name} onClose={() => setViewing(false)} />
+      {viewing && fileURL(viewing.fileId) && (
+        <PdfViewer url={fileURL(viewing.fileId)} name={viewing.name} onClose={() => setViewing(null)} />
       )}
     </Card>
   )
@@ -394,7 +421,7 @@ function CastCard({ segment, idx, onOpenPicker }) {
             {warningCount > 0 && (
               <Badge className="bg-bad-soft text-bad">⚠ {warningCount} quick-change risk{warningCount > 1 ? 's' : ''}</Badge>
             )}
-            {canEdit && segment.pdf && rows.length > 0 && (
+            {canEdit && getPdfs(segment).length > 0 && rows.length > 0 && (
               <Button size="sm" onClick={() => setDetectOpen(true)}>✨ Auto-detect sides</Button>
             )}
             {canEdit && <Button size="sm" onClick={onOpenPicker}>Edit cast</Button>}
@@ -487,16 +514,21 @@ function CastCard({ segment, idx, onOpenPicker }) {
 // until confirmed, and every value stays editable afterward.
 function SideDetectModal({ segment, onClose }) {
   const { state, setMemberSide, setSettings } = useStore()
+  const pdfs = getPdfs(segment)
+  const [pdfIdx, setPdfIdx] = useState(0)
   const [status, setStatus] = useState('reading') // reading | ready | empty | error
   const [detected, setDetected] = useState([])
   const [numPages, setNumPages] = useState(0)
   const leftIsStageLeft = state.settings.pdfLeftIsStageLeft !== false
+  const activePdf = pdfs[pdfIdx] ?? pdfs[0]
 
   useEffect(() => {
+    if (!activePdf) return
     let alive = true
+    setStatus('reading')
     ;(async () => {
       try {
-        const pages = await readFormPages(fileURL(segment.pdf.fileId))
+        const pages = await readFormPages(fileURL(activePdf.fileId))
         if (!alive) return
         setNumPages(pages.numPages)
         if (pages.first.length === 0 && pages.last.length === 0) {
@@ -515,7 +547,7 @@ function SideDetectModal({ segment, onClose }) {
     })()
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segment.pdf?.fileId])
+  }, [activePdf?.fileId])
 
   const matched = detected.filter((d) => d.enterPage || d.exitPage)
   const unmatched = detected.filter((d) => !d.enterPage && !d.exitPage)
@@ -530,6 +562,13 @@ function SideDetectModal({ segment, onClose }) {
 
   return (
     <Modal title={`Auto-detect sides — ${segment.name}`} onClose={onClose} wide>
+      {pdfs.length > 1 && (
+        <Field label="Read from which PDF?">
+          <Select value={pdfIdx} onChange={(e) => setPdfIdx(Number(e.target.value))}>
+            {pdfs.map((p, i) => <option key={p.fileId} value={i}>{p.name}</option>)}
+          </Select>
+        </Field>
+      )}
       {status === 'reading' && <p className="text-sm text-faint">Reading the forms PDF…</p>}
       {status === 'error' && (
         <p className="text-sm text-bad">Couldn't read that PDF — try re-uploading it, or set sides manually.</p>

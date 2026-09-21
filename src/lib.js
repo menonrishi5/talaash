@@ -21,6 +21,19 @@ export function downloadCSV(filename, headers, rows) {
   URL.revokeObjectURL(url)
 }
 
+// JSON.stringify with object keys sorted, so two documents with the same
+// content compare equal regardless of key order. Postgres jsonb returns keys
+// in its own order (by length, then bytes), not the order the app wrote them —
+// comparing plain JSON.stringify output made the store think a freshly-pulled
+// document had "unsaved local edits" and stop refreshing it.
+export function canonJSON(value) {
+  return JSON.stringify(value, (_k, v) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
+  )
+}
+
 export const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 export const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 

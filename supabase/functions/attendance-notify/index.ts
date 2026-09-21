@@ -1,7 +1,9 @@
 // Attendance Slack notifications. Deploy as edge function "attendance-notify".
 // Modes (POST body { kind }):
 //   announce     { practice_date }             -> post the "check in / excuse" prompt to #attendance
-//   room-update  { practice_date, location }   -> re-post a room change to #attendance
+//                                                 (edits the earlier post in place if there is one)
+//   room-update  { practice_date, location }   -> edit that post + thread-reply the room change
+//   delete-announcement { practice_date }      -> delete the announcement's Slack post
 //   recap        { session_id }                -> post the post-practice recap to #attendance
 //   cron         (from pg_cron)                 -> window-close reminder (channel) + board
 //                                                 summary (DM editors) for announced practices
@@ -88,7 +90,7 @@ Deno.serve(async (req) => {
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const kind = body.kind ?? "cron";
 
-    if (kind === "announce" || kind === "room-update" || kind === "recap") {
+    if (kind === "announce" || kind === "room-update" || kind === "delete-announcement" || kind === "recap") {
       if (!(await callerIsEditor(req))) {
         return new Response(JSON.stringify({ ok: false, error: "Editors only." }), {
           status: 403, headers: { ...cors, "Content-Type": "application/json" },
@@ -116,17 +118,11 @@ Deno.serve(async (req) => {
     const startMinFor = (iso: string) =>
       settings.practiceSchedule?.find((p) => p.day === dayOf(iso))?.startMin ?? null;
 
-    // ---- announce: prompt the channel to check in / excuse ----
-    if (kind === "announce") {
-      if (!channel) return json({ ok: false, error: "No attendance channel set" });
-      const iso = body.practice_date as string;
+    // Build the announcement text for a date + room (shared by announce and
+    // room-update so an edited post always matches a fresh one).
+    const announceText = (iso: string, room: string | undefined) => {
       const sm = startMinFor(iso);
       const deadline = sm != null ? minLabel(sm - windowH * 60) : `${windowH}h before start`;
-      // Prefer the room snapshotted onto the announcement row (the app writes
-      // it when announcing); fall back to the live benching location.
-      const { data: annRow } = await supabase
-        .from("attendance_announcements").select("location").eq("practice_date", iso).maybeSingle();
-      const room = (annRow?.location as string | undefined) ?? location;
       // Agenda from the Practice Calendar for this date — a segment name, or
       // the free-text note if the block isn't tied to a segment.
       const segName = (id?: string | null) => segments.find((s) => s.id === id)?.name;
@@ -135,29 +131,80 @@ Deno.serve(async (req) => {
         .sort((a, b) => a.startMin - b.startMin)
         .map((b) => `• ${minLabel(b.startMin)}–${minLabel(b.endMin)} — ${segName(b.segmentId) ?? b.label ?? "Practice"}`)
         .join("\n");
-      const text =
-        `🕺 *Practice ${fmtDate(iso)}${sm != null ? ` · ${minLabel(sm)}` : ""}*` +
+      return `🕺 *Practice ${fmtDate(iso)}${sm != null ? ` · ${minLabel(sm)}` : ""}*` +
         `${room ? ` · 📍 ${room}` : ""}\n` +
         `${agenda ? agenda + "\n" : ""}` +
         `Check in when you arrive. Can't make it or running late? Fill out the excuse form ` +
         `by *${deadline}*.\n` +
         `📆 Have a conflict after 7? Update your availability so we can schedule around it: ${APP_URL}`;
+    };
+    const getAnn = async (iso: string) => {
+      const { data } = await supabase
+        .from("attendance_announcements").select("location,slack_channel,slack_ts")
+        .eq("practice_date", iso).maybeSingle();
+      return data as { location?: string; slack_channel?: string; slack_ts?: string } | null;
+    };
+    const saveTs = (iso: string, ch: string | null, ts: string | null) =>
+      supabase.from("attendance_announcements")
+        .update({ slack_channel: ch, slack_ts: ts }).eq("practice_date", iso);
+    // Edit the stored post if we have one (and it's in the current channel);
+    // otherwise (or if Slack says it's gone) post a fresh one and remember it.
+    const postOrEdit = async (iso: string, ann: Awaited<ReturnType<typeof getAnn>>, text: string) => {
+      if (ann?.slack_ts && ann.slack_channel === channel) {
+        const u = await slack("chat.update", { channel, ts: ann.slack_ts, text });
+        if (u.ok) return { ok: true, edited: true, ts: ann.slack_ts as string, error: null };
+        if (u.error !== "message_not_found" && u.error !== "cant_update_message") {
+          return { ok: false, edited: false, ts: null, error: u.error as string };
+        }
+      }
       const r = await slack("chat.postMessage", { channel, text });
-      return json({ ok: r.ok, error: r.error ?? null });
+      if (r.ok) await saveTs(iso, r.channel ?? channel!, r.ts);
+      return { ok: !!r.ok, edited: false, ts: (r.ts ?? null) as string | null, error: (r.error ?? null) as string | null };
+    };
+
+    // ---- announce: prompt the channel to check in / excuse ----
+    if (kind === "announce") {
+      if (!channel) return json({ ok: false, error: "No attendance channel set" });
+      const iso = body.practice_date as string;
+      // Prefer the room snapshotted onto the announcement row (the app writes
+      // it when announcing); fall back to the live benching location.
+      const ann = await getAnn(iso);
+      const r = await postOrEdit(iso, ann, announceText(iso, ann?.location ?? location));
+      return json({ ok: r.ok, edited: r.edited, error: r.error });
     }
 
-    // ---- room-update: the room changed after announcing; re-post it ----
+    // ---- room-update: the room changed after announcing ----
     if (kind === "room-update") {
       if (!channel) return json({ ok: false, error: "No attendance channel set" });
       const iso = body.practice_date as string;
       const room = String(body.location ?? "").trim();
       if (!iso || !room) return json({ ok: false, error: "Missing practice_date or location" });
-      const sm = startMinFor(iso);
-      const text =
-        `📍 *Room change — ${fmtDate(iso)} practice${sm != null ? ` · ${minLabel(sm)}` : ""}*\n` +
-        `Now in *${room}*. Check-in and the excuse deadline are unchanged.`;
-      const r = await slack("chat.postMessage", { channel, text });
-      return json({ ok: r.ok, error: r.error ?? null });
+      const ann = await getAnn(iso);
+      const hadPost = !!ann?.slack_ts && ann.slack_channel === channel;
+      const r = await postOrEdit(iso, ann, announceText(iso, room));
+      if (!r.ok) return json({ ok: false, error: r.error });
+      // Edits don't notify anyone, so also leave a short thread reply (shown in
+      // the channel) when we edited an existing post. A fresh post needs none.
+      if (r.edited && hadPost) {
+        await slack("chat.postMessage", {
+          channel, thread_ts: r.ts, reply_broadcast: true,
+          text: `📍 *Room change* — now in *${room}*. Check-in and the excuse deadline are unchanged.`,
+        });
+      }
+      return json({ ok: true, edited: r.edited, error: null });
+    }
+
+    // ---- delete-announcement: remove the Slack post ----
+    if (kind === "delete-announcement") {
+      const iso = body.practice_date as string;
+      const ann = await getAnn(iso);
+      if (!ann?.slack_ts || !ann.slack_channel) {
+        return json({ ok: false, error: "No saved Slack post for that practice (it may predate this feature — delete it in Slack)." });
+      }
+      const d = await slack("chat.delete", { channel: ann.slack_channel, ts: ann.slack_ts });
+      if (!d.ok && d.error !== "message_not_found") return json({ ok: false, error: d.error });
+      await saveTs(iso, null, null);
+      return json({ ok: true, error: null });
     }
 
     // ---- recap: after the editor ends a session ----

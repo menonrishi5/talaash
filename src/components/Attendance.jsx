@@ -447,7 +447,7 @@ function AnnounceControls() {
     if (!next) { setAnn(null); return }
     const { data } = await supabase
       .from('attendance_announcements')
-      .select('practice_date, location')
+      .select('practice_date, location, slack_ts')
       .eq('practice_date', next.dateISO)
       .maybeSingle()
     setAnn(data ?? null)
@@ -483,7 +483,9 @@ function AnnounceControls() {
         body: { kind: 'announce', practice_date: next.dateISO },
       })
       if (error || !data?.ok) throw new Error(error?.message ?? data?.error)
-      alert('Announced to the channel. The window-close reminder and board summary are now armed.')
+      alert(data.edited
+        ? 'Updated the existing Slack post in place. The window-close reminder and board summary are armed.'
+        : 'Announced to the channel. The window-close reminder and board summary are now armed.')
       loadAnn()
     } catch (e) {
       alert('Could not announce: ' + (e.message ?? e))
@@ -495,7 +497,7 @@ function AnnounceControls() {
   const updateRoom = async () => {
     const current = ann?.location ?? room() ?? ''
     const input = prompt(
-      `New room / location for ${DAY_NAMES[next.day]} ${fmtDate(next.dateISO)} practice.\nThis re-posts to the attendance channel.`,
+      `New room / location for ${DAY_NAMES[next.day]} ${fmtDate(next.dateISO)} practice.\nThis edits the announcement in the attendance channel and adds a thread reply.`,
       current,
     )
     if (input === null) return
@@ -510,10 +512,27 @@ function AnnounceControls() {
         body: { kind: 'room-update', practice_date: next.dateISO, location: loc },
       })
       if (error || !data?.ok) throw new Error(error?.message ?? data?.error)
-      alert('Room change posted to the channel.')
+      alert(data.edited ? 'Announcement edited and room change noted in its thread.' : 'Room change posted to the channel.')
       loadAnn()
     } catch (e) {
       alert('Could not post the room change: ' + (e.message ?? e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const deletePost = async () => {
+    if (!confirm('Delete the announcement post from Slack? (Re-announcing will post a fresh one.)')) return
+    setBusy(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('attendance-notify', {
+        body: { kind: 'delete-announcement', practice_date: next.dateISO },
+      })
+      if (error || !data?.ok) throw new Error(error?.message ?? data?.error)
+      alert('Deleted from Slack.')
+      loadAnn()
+    } catch (e) {
+      alert('Could not delete: ' + (e.message ?? e))
     } finally {
       setBusy(false)
     }
@@ -527,6 +546,11 @@ function AnnounceControls() {
       {ann && (
         <Button size="sm" disabled={busy} onClick={updateRoom} title="Room changed? Re-post it to the channel.">
           📍 Update room
+        </Button>
+      )}
+      {ann?.slack_ts && (
+        <Button size="sm" variant="ghost" disabled={busy} onClick={deletePost} title="Remove the announcement from Slack">
+          🗑 Delete Slack post
         </Button>
       )}
     </>

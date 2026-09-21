@@ -40,6 +40,7 @@ guessing from what the app seems to do.
 | 24 | `migration-24-merge-members-checkin-collision.sql` | `merge_members()` no longer errors on `checkins_session_id_member_id_key` when both members have a check-in for the same session — moves the non-colliding rows and keeps the stronger row (real check-in / fined) for shared sessions. | ✅ *(confirmed run 2026-09)* |
 | 25 | `migration-25-dedupe-attendance-sessions.sql` | Consolidates any duplicate-date `attendance_sessions` rows (same merge-the-stronger-row logic as `merge_members()`) and (re)adds the missing `unique (session_date)` guarantee — the likely cause of repeated no-show fines for the same practice. | ✅ *(confirmed run 2026-09)* |
 | 26 | `migration-26-benching-default-accepted.sql` | Benching slots are on duty by default (no explicit accept needed). Adds `reject_slot_unclaimed()` — the assigned member or reserve can declare a slot fully unclaimed in one step, rendered everywhere as "uncovered". Pairs with a `benching-notify` redeploy (reminders no longer nag about accepting). | ✅ *(confirmed run 2026-09, function redeployed)* |
+| 27 | `migration-27-announcement-slack-ts.sql` | Stores the Slack message id (`slack_channel`, `slack_ts`) on `attendance_announcements` so re-announce / room change edits the original post instead of posting a new one, and editors can delete it. Pairs with an `attendance-notify` redeploy. | ⬜ |
 
 Everything through #18 is assumed applied because the app is live and
 working end to end on it — **but this file is the first time that's been

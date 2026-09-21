@@ -40,9 +40,25 @@ export default function Benching() {
     const { data } = await supabase.from('cover_requests').select('*')
     if (data) setCoverRequests(data)
   }
+  // RSVPs and cover requests were only fetched once on open, so a tab left
+  // open kept showing stale "who's covering" — one source of "the schedule
+  // looks different on my screen". Refresh on focus and every minute while
+  // visible.
   useEffect(() => {
-    loadResponses()
-    loadCoverRequests()
+    const refresh = () => {
+      if (document.visibilityState === 'hidden') return
+      loadResponses()
+      loadCoverRequests()
+    }
+    refresh()
+    const t = setInterval(refresh, 60000)
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      clearInterval(t)
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refresh)
+    }
   }, [])
 
   const overrides = benching.weeks[weekISO] || {}
@@ -263,6 +279,11 @@ export default function Benching() {
         <SlotModal
           slotId={slotModal === 'new' ? null : slotModal}
           weekISO={weekISO}
+          cover={slotModal !== 'new' ? acceptedCoverFor(slotModal) : null}
+          derivedStatus={(() => {
+            const s = slotModal !== 'new' ? benching.template.find((t) => t.id === slotModal) : null
+            return s ? deriveStatus(s) : null
+          })()}
           response={responses.find((r) => r.week_iso === weekISO && r.slot_id === slotModal) ?? null}
           onResponsesChanged={loadResponses}
           onClose={() => setSlotModal(null)}
@@ -299,8 +320,15 @@ function RotationControl({ weekISO, letter }) {
     )
   }
 
+  const tpl = state.benching.template
+  const nA = tpl.filter((t) => t.week === 'A').length
+  const nB = tpl.filter((t) => t.week === 'B').length
+  const nAll = tpl.filter((t) => !t.week).length
+  const nextLetter = weekLetter(addDaysISO(weekISO, 7), anchor)
+
   return (
-    <p className="px-5 pt-2 text-[11px] text-faint">
+    <div className="px-5 pt-2">
+    <p className="text-[11px] text-faint">
       A/B rotation on — the week shown above is <span className="font-semibold text-muted">Week {letter}</span>.{' '}
       Anchored to {fmtWeekRange(anchor).split(' – ')[0]} (a Week A); the letter only changes if you flip it here.{' '}
       <button
@@ -317,6 +345,17 @@ function RotationControl({ weekISO, letter }) {
         Turn off
       </button>
     </p>
+    <p className="text-[11px] text-faint mt-1">
+      Slots: {nA} Week A · {nB} Week B · {nAll} every week.{' '}
+      Next week is Week {nextLetter}.
+      {(nA === 0 || nB === 0) && (
+        <span className="text-warn"> ⚠ {nA === 0 ? 'No Week A slots' : 'No Week B slots'} — that week will look empty.</span>
+      )}
+      {nAll > 0 && (
+        <span className="text-warn"> ⚠ {nAll} slot{nAll > 1 ? 's are' : ' is'} untagged and show in BOTH weeks — tag them A or B in the slot editor if that's not intended.</span>
+      )}
+    </p>
+    </div>
   )
 }
 
@@ -456,6 +495,9 @@ function MyBenching({ responses, onChanged, coverRequests = [], onCoverChanged }
                   <span className="font-medium text-ink">
                     {DAY_NAMES[occ.slot.day]} {occ.dateISO.slice(5)} · {minToLabel(occ.slot.startMin)} – {minToLabel(occ.slot.endMin)}
                   </span>
+                  {weekLetter(occ.wkISO, benching.rotationAnchorISO) && (
+                    <Badge className="bg-accent-soft text-accent ml-2">Week {weekLetter(occ.wkISO, benching.rotationAnchorISO)}</Badge>
+                  )}
                 </div>
                 <Badge className="bg-special-soft text-special">✓ {nameOf(occ.acceptedCover.to_member_id)} is covering</Badge>
               </li>
@@ -473,6 +515,9 @@ function MyBenching({ responses, onChanged, coverRequests = [], onCoverChanged }
                   <span className="font-medium text-ink">
                     {DAY_NAMES[occ.slot.day]} {occ.dateISO.slice(5)} · {minToLabel(occ.slot.startMin)} – {minToLabel(occ.slot.endMin)}
                   </span>
+                  {weekLetter(occ.wkISO, benching.rotationAnchorISO) && (
+                    <Badge className="bg-accent-soft text-accent ml-2">Week {weekLetter(occ.wkISO, benching.rotationAnchorISO)}</Badge>
+                  )}
                   {!occ.mine && (
                     <span className="block text-xs text-faint">
                       you're the reserve for {nameOf(occ.slot.memberId)}
@@ -760,6 +805,7 @@ function ImportModal({ onClose }) {
   const resolution = useMemo(() => resolveNames(state.roster, names), [state.roster, names])
   const needsChoice = resolution.filter((r) => r.status === 'ambiguous')
   const unpicked = needsChoice.filter((r) => !picks[r.key])
+  const untaggedCount = state.benching.template.filter((t) => !t.week).length
 
   const doImport = () => {
     // Resolve every sheet name to a member id, creating members only where the
@@ -865,7 +911,7 @@ function ImportModal({ onClose }) {
       <div className="flex justify-between items-center mt-4">
         <p className="text-[11px] text-faint max-w-xs">
           {week
-            ? `Replaces only the Week ${week} slots — the other week is untouched. Confirmed hours are kept.`
+            ? `Replaces the Week ${week} slots${untaggedCount ? ` and removes the ${untaggedCount} untagged “every week” slot${untaggedCount > 1 ? 's' : ''}` : ''} — the other week's slots are untouched. Confirmed hours are kept.`
             : 'Replaces the whole weekly template. Confirmed hours already earned are kept.'}
         </p>
         <div className="flex gap-2">
@@ -884,13 +930,16 @@ function ImportModal({ onClose }) {
 }
 
 // Attendance + editing for one slot in a given week.
-function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
+function SlotModal({ slotId, weekISO, response, cover, derivedStatus, onResponsesChanged, onClose }) {
   const { state, setSlotStatus, addTemplateSlot, updateTemplateSlot, removeTemplateSlot } = useStore()
   const { canEdit } = useAuth()
   const slot = state.benching.template.find((s) => s.id === slotId) ?? null
   const isNew = !slot
   const ov = slot ? state.benching.weeks[weekISO]?.[slot.id] : null
   const status = ov?.status ?? 'pending'
+  // What the grid shows right now: the editor's confirmation if any, else the
+  // live RSVP / arranged-cover state.
+  const shown = derivedStatus ?? status
   const memberName = (id) => state.roster.find((m) => m.id === id)?.name ?? '—'
 
   const rotating = !!state.benching.rotationAnchorISO
@@ -947,12 +996,22 @@ function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
             <p><span className="text-muted">Reserve:</span> <span className="font-medium text-ink">{slot.reserveId ? memberName(slot.reserveId) : 'none'}</span></p>
             <p>
               <span className="text-muted">This week ({fmtWeekRange(weekISO)}):</span>{' '}
-              <Badge className={STATUS_META[status].badge}>{STATUS_META[status].label}</Badge>
-              {status === 'cover' && <span className="ml-1 font-medium">{memberName(ov.coverMemberId)}</span>}
+              <Badge className={STATUS_META[shown].badge}>{shown === 'primary' ? 'On duty' : STATUS_META[shown].label}</Badge>
+              {shown === 'cover' && (
+                <span className="ml-1 font-medium">
+                  {memberName(ov?.coverMemberId ?? cover?.to_member_id)}
+                  {!ov?.coverMemberId && cover && <span className="text-muted font-normal"> (arranged by {memberName(cover.from_member_id)})</span>}
+                </span>
+              )}
+              {shown === 'reserve' && <span className="ml-1 font-medium">{memberName(slot.reserveId)}</span>}
             </p>
             <p>
               <span className="text-muted">Member response:</span>{' '}
-              {response?.status === 'declined' ? (
+              {cover ? (
+                <Badge className="bg-special-soft text-special">
+                  {memberName(cover.from_member_id)} asked {memberName(cover.to_member_id)} — accepted
+                </Badge>
+              ) : response?.status === 'declined' ? (
                 <Badge className="bg-bad-soft text-bad">passed along</Badge>
               ) : (
                 <Badge className="bg-good-soft text-good">on duty (default)</Badge>
@@ -966,12 +1025,23 @@ function SlotModal({ slotId, weekISO, response, onResponsesChanged, onClose }) {
                 </>
               )}
             </p>
+            <p>
+              <span className="text-muted">Your attendance confirmation:</span>{' '}
+              {ov?.status
+                ? <Badge className={STATUS_META[ov.status].badge}>{STATUS_META[ov.status].label}</Badge>
+                : <Badge className="bg-subtle text-muted">not confirmed yet</Badge>}
+            </p>
           </div>
 
           {canEdit && (<>
           <p className="text-xs font-medium text-muted mb-2">Attendance for this week</p>
           <div className="space-y-2">
-            <Button variant="success" className="w-full" onClick={() => mark('primary')}>
+            {cover && (
+              <Button variant="success" className="w-full" onClick={() => mark('cover', cover.to_member_id)}>
+                ✓ {memberName(cover.to_member_id)} benched (arranged cover)
+              </Button>
+            )}
+            <Button variant={cover ? 'secondary' : 'success'} className="w-full" onClick={() => mark('primary')}>
               ✓ {memberName(slot.memberId)} benched
             </Button>
             {slot.reserveId && (

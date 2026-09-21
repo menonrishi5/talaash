@@ -4,7 +4,7 @@ import {
   minToLabel, minToShort, parseTime, durationLabel,
   toISODate, fromISODate, weekStartISO, teamWeekStartISO, addDaysISO, dayIndexOfISO,
   fmtWeekRange, relativeDays, parseDay, parseBenchingSheet,
-  segColor, SEGMENT_COLORS, sideLabel, weekLetter, slotsForWeek,
+  segColor, SEGMENT_COLORS, sideLabel, weekLetter, slotsForWeek, canonJSON, teamParts,
 } from './lib.js'
 
 // ---- teamParts / teamNow ----
@@ -341,5 +341,72 @@ describe('slotsForWeek', () => {
   it('returns the B slots plus untagged ones on a B week', () => {
     const got = slotsForWeek(template, '2026-09-14', '2026-09-07').map((s) => s.id)
     expect(got).toEqual(['s2', 's3'])
+  })
+})
+
+
+describe('canonJSON', () => {
+  it('is independent of object key order (Postgres jsonb reorders keys)', () => {
+    const a = { weeks: {}, template: [{ id: 'x', day: 1 }], rotationAnchorISO: '2026-09-07' }
+    const b = { rotationAnchorISO: '2026-09-07', template: [{ day: 1, id: 'x' }], weeks: {} }
+    expect(canonJSON(a)).toBe(canonJSON(b))
+  })
+
+  it('still distinguishes different content and array order', () => {
+    expect(canonJSON({ a: 1 })).not.toBe(canonJSON({ a: 2 }))
+    expect(canonJSON([1, 2])).not.toBe(canonJSON([2, 1]))
+  })
+})
+
+// The app, benching-notify, weekly-digest and the calendar feed each compute
+// the A/B letter themselves. They must always agree, or members see one week
+// in the app and get reminders / calendar events for the other.
+describe('A/B letter agrees across every implementation', () => {
+  const edgeLetter = (mondayISO, anchor) => {
+    const weeks = Math.round(
+      (new Date(mondayISO + 'T00:00:00Z').getTime() - new Date(anchor + 'T00:00:00Z').getTime()) / (7 * 86400000),
+    )
+    return ((weeks % 2) + 2) % 2 === 0 ? 'A' : 'B'
+  }
+
+  it('matches the edge-function formula for 5 years of Mondays (across DST changes)', () => {
+    for (const anchor of ['2026-08-31', '2026-09-07', '2025-01-06']) {
+      let mon = '2024-01-01'
+      for (let i = 0; i < 260; i++) {
+        expect(weekLetter(mon, anchor)).toBe(edgeLetter(mon, anchor))
+        mon = addDaysISO(mon, 7)
+      }
+    }
+  })
+
+  it('alternates strictly week to week, and a slot appears in exactly one of two consecutive weeks', () => {
+    const anchor = '2026-09-07'
+    const template = [{ id: 'a', week: 'A' }, { id: 'b', week: 'B' }]
+    let mon = '2026-01-05'
+    for (let i = 0; i < 80; i++) {
+      const next = addDaysISO(mon, 7)
+      expect(weekLetter(mon, anchor)).not.toBe(weekLetter(next, anchor))
+      const here = slotsForWeek(template, mon, anchor).map((s) => s.id)
+      const there = slotsForWeek(template, next, anchor).map((s) => s.id)
+      expect(here).toHaveLength(1)
+      expect(there).toHaveLength(1)
+      expect(here[0]).not.toBe(there[0])
+      mon = next
+    }
+  })
+
+  it("'this week' is the same Monday for the app and the edge functions at every instant, incl. Sun/Mon night and DST", () => {
+    const edgeMonday = (at) => {
+      const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(at).split('-')
+      const noon = new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2], 12))
+      noon.setUTCDate(noon.getUTCDate() - ((noon.getUTCDay() + 6) % 7))
+      return noon.toISOString().slice(0, 10)
+    }
+    for (const start of ['2026-03-05T00:00:00Z', '2026-10-29T00:00:00Z', '2026-09-17T00:00:00Z']) {
+      for (let i = 0; i < 14 * 24; i++) {
+        const at = new Date(new Date(start).getTime() + i * 3600000)
+        expect(weekStartISO(fromISODate(teamParts(at).iso))).toBe(edgeMonday(at))
+      }
+    }
   })
 })

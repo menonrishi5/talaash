@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { uid } from './lib.js'
+import { uid, canonJSON } from './lib.js'
 import { supabase } from './supabase.js'
 import { useAuth } from './auth.jsx'
 import { findRosterMatch } from './matching.js'
@@ -112,7 +112,7 @@ export function StoreProvider({ children }) {
             const rows = DOMAIN_KEYS.map((k) => ({ key: k, data: local[k] }))
             const { error: upErr } = await supabase.from('app_state').upsert(rows)
             if (upErr) throw upErr
-            DOMAIN_KEYS.forEach((k) => (lastSynced.current[k] = JSON.stringify(local[k])))
+            DOMAIN_KEYS.forEach((k) => (lastSynced.current[k] = canonJSON(local[k])))
           }
         } else {
           const merged = { ...DEFAULT_STATE }
@@ -120,7 +120,7 @@ export function StoreProvider({ children }) {
           merged.benching = { ...DEFAULT_STATE.benching, ...(merged.benching || {}) }
           merged.dues = { ...DEFAULT_STATE.dues, ...(merged.dues || {}) }
           merged.settings = { ...DEFAULT_STATE.settings, ...(merged.settings || {}) }
-          DOMAIN_KEYS.forEach((k) => (lastSynced.current[k] = JSON.stringify(merged[k])))
+          DOMAIN_KEYS.forEach((k) => (lastSynced.current[k] = canonJSON(merged[k])))
           setState(merged)
         }
         loadedRef.current = true
@@ -161,8 +161,8 @@ export function StoreProvider({ children }) {
           for (const row of data) {
             if (!DOMAIN_KEYS.includes(row.key)) continue
             // Don't stomp edits this device hasn't saved yet.
-            if (JSON.stringify(cur[row.key]) !== lastSynced.current[row.key]) continue
-            const incoming = JSON.stringify(row.data)
+            if (canonJSON(cur[row.key]) !== lastSynced.current[row.key]) continue
+            const incoming = canonJSON(withDefaults(row.key, row.data))
             if (incoming === lastSynced.current[row.key]) continue
             next[row.key] = withDefaults(row.key, row.data)
             lastSynced.current[row.key] = incoming
@@ -189,7 +189,7 @@ export function StoreProvider({ children }) {
     localStorage.setItem(KEY, JSON.stringify(state))
     if (!loadedRef.current || !canEditRef.current) return
     const changed = DOMAIN_KEYS.filter(
-      (k) => JSON.stringify(state[k]) !== lastSynced.current[k],
+      (k) => canonJSON(state[k]) !== lastSynced.current[k],
     )
     if (changed.length === 0) return
     setSyncStatus('saving')
@@ -203,7 +203,7 @@ export function StoreProvider({ children }) {
         }))
         const { error } = await supabase.from('app_state').upsert(rows)
         if (error) throw error
-        changed.forEach((k) => (lastSynced.current[k] = JSON.stringify(state[k])))
+        changed.forEach((k) => (lastSynced.current[k] = canonJSON(state[k])))
         setSyncStatus('synced')
       } catch (e) {
         console.error('Supabase save failed — changes kept locally.', e)
@@ -479,7 +479,9 @@ export function StoreProvider({ children }) {
       // Replaces the weekly template. Past confirmations are kept — they carry
       // their own snapshot of times/people, so hour totals survive re-imports.
       // With `week` ('A' | 'B') only that half of an A/B rotation is replaced;
-      // slots tagged with the other letter (or untagged) are left alone.
+      // slots tagged with the OTHER letter are kept. Untagged ("every week")
+      // slots are dropped too — leaving them would duplicate them into both
+      // weeks alongside the newly lettered ones (the import modal says so).
       setTemplate(slots, week = null) {
         set((s) => {
           const tagged = week ? slots.map((sl) => ({ ...sl, week })) : slots

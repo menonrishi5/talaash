@@ -222,6 +222,7 @@ function DuesAdmin() {
   // individual waiver. Zero unless they actually paid it late.
   const lateFineFor = (memberId, cat) => {
     if (!cat.rateId || !cat.dueDate) return 0
+    if (!categoryApplies(memberId, cat)) return 0
     if (cat.lateFinesActive === false) return 0                 // bulk-waived for this fee
     if (memberById[memberId]?.paymentPlan) return 0             // on a payment plan
     if (dues.lateFineWaivers?.[memberId]?.[catId(cat)]) return 0 // individually waived
@@ -236,7 +237,13 @@ function DuesAdmin() {
   const lateFineTotal = (memberId) =>
     categories.reduce((sum, c) => sum + lateFineFor(memberId, c), 0)
 
+  // A category with no `restrictedTo` applies to everyone (unchanged
+  // behavior); otherwise only the listed member ids owe it — e.g. an Airbnb
+  // fee that only applies to the members actually going on that trip.
+  const categoryApplies = (memberId, cat) => !cat.restrictedTo || cat.restrictedTo.includes(memberId)
+
   const cellState = (memberId, cat) => {
+    if (!categoryApplies(memberId, cat)) return 'na'
     const ov = dues.overrides[memberId]?.[catId(cat)]
     if (ov) return ov // 'paid' | 'exempt'
     if (cat.rateId && paidRates[memberId]?.has(cat.rateId)) return 'auto-paid'
@@ -244,7 +251,7 @@ function DuesAdmin() {
   }
 
   const cycleCell = (memberId, cat) => {
-    if (!canEdit) return
+    if (!canEdit || !categoryApplies(memberId, cat)) return
     const key = catId(cat)
     const cur = dues.overrides[memberId]?.[key] ?? null
     const next = cur === null ? 'paid' : cur === 'paid' ? 'exempt' : null
@@ -382,6 +389,9 @@ function DuesAdmin() {
                   {categories.map((c) => (
                     <th key={catId(c)} className="text-center text-[11px] uppercase tracking-wide text-faint font-medium pb-2 px-2 whitespace-nowrap">
                       {c.name}{!c.rateId && <span title="Manual category (not from Zeffy)"> ✍</span>}
+                      {c.restrictedTo && (
+                        <span title={`Only applies to ${c.restrictedTo.length} member(s)`}> 👥</span>
+                      )}
                       <div className="text-faint normal-case">{cents(c.amountCents)}</div>
                     </th>
                   ))}
@@ -409,14 +419,15 @@ function DuesAdmin() {
                           paid: ['✓', 'bg-special-soft text-special', 'Paid (manual override)'],
                           exempt: ['—', 'bg-subtle text-faint', 'Exempt'],
                           unpaid: ['✗', 'bg-bad-soft text-bad', 'Not paid'],
+                          na: ['', 'bg-transparent text-faint opacity-40', "Doesn't apply to this member"],
                         }[st]
                         return (
                           <td key={catId(c)} className="text-center px-2 py-1.5 border-t border-line">
                             <button
-                              disabled={!canEdit}
-                              title={lf > 0 ? `Paid late — ${cents(lf)} late fine` : label[2]}
+                              disabled={!canEdit || st === 'na'}
+                              title={st === 'na' ? label[2] : lf > 0 ? `Paid late — ${cents(lf)} late fine` : label[2]}
                               onClick={() => cycleCell(m.id, c)}
-                              className={`relative w-7 h-7 rounded-lg text-xs font-bold ${label[1]} ${canEdit ? 'cursor-pointer hover:ring-2 hover:ring-line-strong' : ''}`}
+                              className={`relative w-7 h-7 rounded-lg text-xs font-bold ${label[1]} ${canEdit && st !== 'na' ? 'cursor-pointer hover:ring-2 hover:ring-line-strong' : ''}`}
                             >
                               {label[0]}
                               {lf > 0 && <span className="absolute -top-1 -right-1 text-[9px]">⏱</span>}
@@ -821,6 +832,60 @@ function DonationsCard({ donations }) {
 }
 
 // Define fee categories: Zeffy rates discovered from payments + manual ones.
+// Picks which roster members a fee applies to. `value` is null ("everyone",
+// the default) or an array of member ids ("only these" — e.g. an Airbnb
+// deposit only the members going on that trip owe).
+function RestrictedToPicker({ roster, value, onChange }) {
+  const [open, setOpen] = useState(!!value)
+  const active = roster.filter(isActive)
+  const selected = new Set(value ?? [])
+  const toggle = (id) => {
+    const next = new Set(selected)
+    next.has(id) ? next.delete(id) : next.add(id)
+    onChange([...next])
+  }
+  return (
+    <div className="text-[11px] text-muted">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span>Applies to:</span>
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className={`px-2 py-0.5 rounded-full border text-[11px] cursor-pointer ${
+            !value ? 'bg-accent text-accent-ink border-accent' : 'bg-surface border-line-strong text-muted'
+          }`}
+        >
+          Everyone
+        </button>
+        <button
+          type="button"
+          onClick={() => { if (!value) onChange([]); setOpen((o) => !o) }}
+          className={`px-2 py-0.5 rounded-full border text-[11px] cursor-pointer ${
+            value ? 'bg-accent text-accent-ink border-accent' : 'bg-surface border-line-strong text-muted'
+          }`}
+        >
+          {value ? `Selected members (${value.length})` : 'Selected members'}
+        </button>
+      </div>
+      {value && open && (
+        <div className="flex flex-wrap gap-1 mt-1.5 max-h-28 overflow-y-auto thin-scroll">
+          {active.map((m) => (
+            <label
+              key={m.id}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-full border cursor-pointer text-[11px] ${
+                selected.has(m.id) ? 'bg-special-soft border-special/40 text-special' : 'bg-surface border-line text-muted'
+              }`}
+            >
+              <input type="checkbox" className="hidden" checked={selected.has(m.id)} onChange={() => toggle(m.id)} />
+              {m.name}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function CategoriesModal({ payments, onClose }) {
   const { state, setDues, setSettings } = useStore()
   const [defaults, setDefaults] = useState(
@@ -861,6 +926,7 @@ function CategoriesModal({ payments, onClose }) {
       veryLateCents: existing[d.rateId]?.veryLateCents ?? null,
       veryLateAfterDays: existing[d.rateId]?.veryLateAfterDays ?? null,
       lateFinesActive: existing[d.rateId]?.lateFinesActive ?? true,
+      restrictedTo: existing[d.rateId]?.restrictedTo ?? null,
       count: d.count,
       typicalAmount: d.typicalAmount,
       campaigns: d.campaigns,
@@ -869,13 +935,13 @@ function CategoriesModal({ payments, onClose }) {
     // manual categories saved earlier
     ...state.dues.categories
       .filter((c) => !c.rateId)
-      .map((c) => ({ ...c, id: catId(c), include: true, count: null, campaigns: '', typicalAmount: null })),
+      .map((c) => ({ ...c, id: catId(c), include: true, count: null, campaigns: '', typicalAmount: null, restrictedTo: c.restrictedTo ?? null })),
   ])
 
   const addManual = () => {
     setRows([...rows, {
       id: 'manual-' + uid(), rateId: null, include: true, name: '',
-      amountCents: 0, count: null, typicalAmount: null, campaigns: '', order: rows.length,
+      amountCents: 0, count: null, typicalAmount: null, campaigns: '', restrictedTo: null, order: rows.length,
     }])
   }
 
@@ -903,6 +969,7 @@ function CategoriesModal({ payments, onClose }) {
         lateCents: r.lateCents, veryLateCents: r.veryLateCents,
         veryLateAfterDays: r.veryLateAfterDays,
         lateFinesActive: r.lateFinesActive !== false,
+        restrictedTo: r.restrictedTo && r.restrictedTo.length ? r.restrictedTo : null,
       }))
     setDues({ categories })
     setSettings({ dueFineDefaults: defaults })
@@ -956,6 +1023,15 @@ function CategoriesModal({ payments, onClose }) {
                   : <Badge className="bg-subtle text-muted">manual ✍</Badge>}
               </span>
             </div>
+            {r.include && (
+              <div className="mt-2 pl-6">
+                <RestrictedToPicker
+                  roster={state.roster}
+                  value={r.restrictedTo}
+                  onChange={(restrictedTo) => update(i, { restrictedTo })}
+                />
+              </div>
+            )}
             {r.include && r.rateId && (
               <div className="flex items-center gap-2 flex-wrap mt-2 pl-6 text-[11px] text-muted">
                 <span>Due date (for late fines):</span>

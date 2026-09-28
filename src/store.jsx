@@ -95,34 +95,43 @@ export function StoreProvider({ children }) {
   const lastSynced = useRef({}) // domain key -> JSON string last written to/read from server
   const saveTimer = useRef(null)
 
-  // Initial pull: server copy wins; if the server is empty (first ever run),
-  // seed it from whatever this browser has locally.
+  // Initial pull: server copy wins. This USED to auto-seed the server from
+  // this browser's local copy whenever the initial select came back empty,
+  // on the assumption that empty == "first ever run". That assumption is
+  // wrong often enough to be dangerous: an empty-but-200 response has been
+  // observed from a genuinely non-empty server (a stale/cold connection —
+  // e.g. right after a laptop wakes from sleep), and auto-seeding on that
+  // false signal is exactly how a real team's roster/segments/benching/dues
+  // got silently overwritten with blank defaults once already. So now: an
+  // empty result is retried once, and even then we NEVER write anything
+  // automatically — `loadedRef` stays false (which also blocks the persist
+  // effect below), `syncStatus` becomes 'empty', and the UI has to show an
+  // explicit, editor-only confirmation (see `seedFromLocal`) before anything
+  // is ever pushed over what might be a perfectly intact server.
   useEffect(() => {
     let cancelled = false
+    const fetchDomains = () => supabase.from('app_state').select('key,data')
     ;(async () => {
       try {
-        const { data, error } = await supabase.from('app_state').select('key,data')
+        let { data, error } = await fetchDomains()
         if (error) throw error
+        if (data.length === 0) {
+          await new Promise((r) => setTimeout(r, 1500))
+          ;({ data, error } = await fetchDomains())
+          if (error) throw error
+        }
         if (cancelled) return
         if (data.length === 0) {
-          // First ever run: seed the server from this browser (editors only —
-          // viewers can't write, and shouldn't define the team's data anyway).
-          if (canEditRef.current) {
-            const local = load()
-            const rows = DOMAIN_KEYS.map((k) => ({ key: k, data: local[k] }))
-            const { error: upErr } = await supabase.from('app_state').upsert(rows)
-            if (upErr) throw upErr
-            DOMAIN_KEYS.forEach((k) => (lastSynced.current[k] = canonJSON(local[k])))
-          }
-        } else {
-          const merged = { ...DEFAULT_STATE }
-          for (const row of data) if (DOMAIN_KEYS.includes(row.key)) merged[row.key] = row.data
-          merged.benching = { ...DEFAULT_STATE.benching, ...(merged.benching || {}) }
-          merged.dues = { ...DEFAULT_STATE.dues, ...(merged.dues || {}) }
-          merged.settings = { ...DEFAULT_STATE.settings, ...(merged.settings || {}) }
-          DOMAIN_KEYS.forEach((k) => (lastSynced.current[k] = canonJSON(merged[k])))
-          setState(merged)
+          setSyncStatus('empty')
+          return
         }
+        const merged = { ...DEFAULT_STATE }
+        for (const row of data) if (DOMAIN_KEYS.includes(row.key)) merged[row.key] = row.data
+        merged.benching = { ...DEFAULT_STATE.benching, ...(merged.benching || {}) }
+        merged.dues = { ...DEFAULT_STATE.dues, ...(merged.dues || {}) }
+        merged.settings = { ...DEFAULT_STATE.settings, ...(merged.settings || {}) }
+        DOMAIN_KEYS.forEach((k) => (lastSynced.current[k] = canonJSON(merged[k])))
+        setState(merged)
         loadedRef.current = true
         setSyncStatus('synced')
       } catch (e) {
@@ -541,6 +550,20 @@ export function StoreProvider({ children }) {
       // ---- danger zone ----
       resetAll() {
         set(DEFAULT_STATE)
+      },
+      // Explicit, editor-triggered push of this device's local copy to the
+      // server — the only path that's allowed to write when the initial load
+      // found nothing there (see the load effect above for why this is no
+      // longer automatic).
+      async seedFromLocal() {
+        const local = load()
+        const rows = DOMAIN_KEYS.map((k) => ({ key: k, data: local[k] }))
+        const { error } = await supabase.from('app_state').upsert(rows)
+        if (error) throw error
+        DOMAIN_KEYS.forEach((k) => (lastSynced.current[k] = canonJSON(local[k])))
+        loadedRef.current = true
+        setState(local)
+        setSyncStatus('synced')
       },
     }
   }, [state, syncStatus])

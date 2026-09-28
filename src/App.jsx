@@ -117,6 +117,71 @@ function ThemeToggle() {
   )
 }
 
+// Shown instead of the whole app when the server came back with nothing for
+// every domain (roster, segments, benching, dues, settings, practice
+// calendar) — see store.jsx for why this is no longer handled by silently
+// overwriting the server. This is either a genuine first-ever setup, or (far
+// more likely for a team that's used the app before) a bad connection.
+function EmptyServerGate() {
+  const { seedFromLocal, state } = useStore()
+  const { role } = useAuth()
+  const [busy, setBusy] = useState(false)
+
+  const seed = async () => {
+    const ok = confirm(
+      "This OVERWRITES the server with whatever is saved on THIS device right now.\n\n" +
+      "Only do this if you're certain Talaash HQ has never been set up for your team before. " +
+      "If your team has used it and this is just a bad connection, click Cancel and reload instead — " +
+      'proceeding here could push stale or blank data over real data.',
+    )
+    if (!ok) return
+    setBusy(true)
+    try {
+      await seedFromLocal()
+    } catch (e) {
+      alert('Could not seed the server: ' + (e.message ?? e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="h-full flex items-center justify-center px-4" style={{ background: 'var(--ground)' }}>
+      <div className="max-w-md text-center">
+        <p className="text-4xl mb-3">⚠️</p>
+        <h1 className="text-lg font-bold text-ink mb-2">Can't find your team's data</h1>
+        <p className="text-sm text-muted mb-5">
+          The server has nothing for roster, segments, benching, dues, or settings. That's expected only the
+          very first time Talaash HQ is set up for a team — otherwise it almost always means a bad or waking-up
+          connection, and reloading in a minute fixes it.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 rounded-xl bg-accent text-accent-ink font-semibold text-sm cursor-pointer"
+        >
+          Reload
+        </button>
+        {role === 'editor' && (
+          <div className="mt-6 pt-5 border-t border-line">
+            <p className="text-xs text-faint mb-2">
+              This device has {state.roster.length} roster member(s), {state.segments.length} segment(s),{' '}
+              {state.benching.template.length} benching slot(s), {state.dues.categories.length} fee categor{state.dues.categories.length === 1 ? 'y' : 'ies'} saved locally.
+              Only if you're certain this is a brand-new setup:
+            </p>
+            <button
+              disabled={busy}
+              onClick={seed}
+              className="px-3 py-1.5 rounded-lg border border-line-strong text-xs text-muted hover:text-bad hover:border-bad/40 cursor-pointer disabled:opacity-40"
+            >
+              {busy ? 'Seeding…' : 'Seed the server from this device'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [tab, setTab] = useState('set-design')
   const [navOpen, setNavOpen] = useState(false)
@@ -139,6 +204,8 @@ export default function App() {
   }, [navOpen])
 
   const select = (id) => { setTab(id); setNavOpen(false) }
+
+  if (syncStatus === 'empty') return <EmptyServerGate />
 
   return (
     <div className="h-full md:flex">

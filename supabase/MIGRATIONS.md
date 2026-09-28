@@ -42,6 +42,7 @@ guessing from what the app seems to do.
 | 26 | `migration-26-benching-default-accepted.sql` | Benching slots are on duty by default (no explicit accept needed). Adds `reject_slot_unclaimed()` — the assigned member or reserve can declare a slot fully unclaimed in one step, rendered everywhere as "uncovered". Pairs with a `benching-notify` redeploy (reminders no longer nag about accepting). | ✅ *(confirmed run 2026-09, function redeployed)* |
 | 27 | `migration-27-announcement-slack-ts.sql` | Stores the Slack message id (`slack_channel`, `slack_ts`) on `attendance_announcements` so re-announce / room change edits the original post instead of posting a new one, and editors can delete it. Pairs with an `attendance-notify` redeploy. | ⬜ |
 | 28 | `migration-28-dues-restricted-categories.sql` | Dues fee categories can be restricted to a subset of the roster (`restrictedTo`) so a trip-specific fee (e.g. an Airbnb) doesn't show as owed for members not going. Updates `get_my_dues()` to filter accordingly. | ✅ *(confirmed run 2026-09)* |
+| 29 | `migration-29-segment-checkin-cutoffs.sql` | Per-segment check-in cutoffs — a segment scheduled later in practice (e.g. Kuthu after Bhangra) can get its own on-time cutoff, held only by members cast in it. Adds `attendance_sessions.segment_cutoffs`, `member_cutoff_min()`, updates `check_in()` and `get_checkin_info()`. | ⬜ |
 
 Everything through #18 is assumed applied because the app is live and
 working end to end on it — **but this file is the first time that's been

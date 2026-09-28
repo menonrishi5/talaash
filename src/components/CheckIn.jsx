@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase, fmtTeamTime } from '../supabase.js'
+import { minToLabel as fmtMin } from '../lib.js'
 
 // Public check-in page (#/checkin?t=…) — what the QR code / Slack link opens.
 // Check-in is tied to the signed-in account: you check in as yourself, so
@@ -162,6 +163,15 @@ export default function CheckIn() {
                 not you? switch account
               </button>
             </p>
+
+            {session?.cutoff_min != null && (
+              <p className="text-xs text-faint text-center mb-4">
+                You're on time until {fmtMin(session.cutoff_min + session.grace_min)}
+                {session.fines_active && (
+                  <> · {money(session.tier1_amount)} fine until {fmtMin(session.cutoff_min + session.tier1_until_min)}, {money(session.tier2_amount)} after</>
+                )}
+              </p>
+            )}
 
             {errMsg && <p className="text-sm text-bad mb-3 text-center">{errMsg}</p>}
 

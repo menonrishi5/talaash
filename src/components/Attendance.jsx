@@ -770,9 +770,28 @@ function StartSession({ todayISO, onCreated }) {
   })
   const [busy, setBusy] = useState(false)
 
+  // Segments with a block on today's Practice Calendar — each can get its
+  // own (later) cutoff, e.g. Bhangra 7-8 then Kuthu 8-10: only members cast
+  // in Kuthu need to arrive at 8. Pre-filled from the block's start time;
+  // editors can adjust or drop a segment back to the base cutoff above.
+  const todaysBlocks = state.practiceBlocks.filter((b) => b.date === todayISO)
+  const segmentsToday = [...new Set(todaysBlocks.map((b) => b.segmentId).filter(Boolean))]
+    .map((id) => ({
+      id,
+      name: state.segments.find((s) => s.id === id)?.name ?? 'Segment',
+      suggested: Math.min(...todaysBlocks.filter((b) => b.segmentId === id).map((b) => b.startMin)),
+    }))
+    .sort((a, b) => a.suggested - b.suggested)
+  const [segCutoffs, setSegCutoffs] = useState(() =>
+    Object.fromEntries(segmentsToday.map((s) => [s.id, { enabled: false, cutoff: s.suggested }])),
+  )
+
   const create = async () => {
     setBusy(true)
-    const { token, ...sessionFields } = form
+    const segment_cutoffs = Object.fromEntries(
+      Object.entries(segCutoffs).filter(([, v]) => v.enabled).map(([id, v]) => [id, v.cutoff]),
+    )
+    const { token, ...sessionFields } = { ...form, segment_cutoffs }
     // Session row (team-readable) and its check-in token (editor-only) are
     // stored separately — the public check-in page never sees it directly,
     // only via the URL it was opened with.
@@ -838,6 +857,41 @@ function StartSession({ todayISO, onCreated }) {
           With these settings: free until {minToLabel(form.cutoff_min + form.grace_min)}, {money(form.tier1_amount)} until{' '}
           {minToLabel(form.cutoff_min + form.tier1_until_min)}, {money(form.tier2_amount)} after that.
         </p>
+        {segmentsToday.length > 0 && (
+          <div className="mb-4 rounded-xl border border-line bg-subtle px-3 py-2.5">
+            <p className="text-xs font-medium text-ink mb-2">
+              Segments on today's calendar — give one its own (later) cutoff so only members cast in it are held to that time.
+            </p>
+            <div className="space-y-1.5">
+              {segmentsToday.map((s) => {
+                const v = segCutoffs[s.id]
+                return (
+                  <div key={s.id} className="flex items-center gap-2 flex-wrap text-sm">
+                    <label className="flex items-center gap-2 cursor-pointer w-40">
+                      <input
+                        type="checkbox" checked={v.enabled}
+                        onChange={(e) => setSegCutoffs({ ...segCutoffs, [s.id]: { ...v, enabled: e.target.checked } })}
+                      />
+                      <span className="text-ink">{s.name}</span>
+                    </label>
+                    <Select
+                      value={v.cutoff}
+                      disabled={!v.enabled}
+                      onChange={(e) => setSegCutoffs({ ...segCutoffs, [s.id]: { ...v, cutoff: Number(e.target.value) } })}
+                      className="!w-auto"
+                    >
+                      {timeOpts.map((m) => <option key={m} value={m}>{minToLabel(m)}</option>)}
+                    </Select>
+                    <span className="text-[11px] text-faint">from the Practice Calendar: {minToLabel(s.suggested)}</span>
+                  </div>
+                )
+              })}
+            </div>
+            <p className="text-[11px] text-faint mt-2">
+              Members not cast in any checked segment above use the base on-time cutoff.
+            </p>
+          </div>
+        )}
         <div className="flex items-center gap-3 flex-wrap">
           <label className="flex items-center gap-2 text-sm text-ink cursor-pointer">
             <input
@@ -872,6 +926,19 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
   const checkedIds = new Set(checkins.map((c) => c.member_id))
   const activeRoster = state.roster.filter(isActive)
   const missing = activeRoster.filter((m) => !checkedIds.has(m.id))
+
+  // Mirrors member_cutoff_min() server-side: a member cast in one of today's
+  // segment-cutoff segments is held to the earliest of those; everyone else
+  // uses the base cutoff. Used for the manual/no-show tools below, which
+  // don't go through the check_in() RPC.
+  const segCutoffs = session.segment_cutoffs || {}
+  const memberCutoff = (memberId) => {
+    if (!Object.keys(segCutoffs).length) return session.cutoff_min
+    const applicable = state.segments
+      .filter((s) => segCutoffs[s.id] != null && s.members.some((m) => m.memberId === memberId))
+      .map((s) => segCutoffs[s.id])
+    return applicable.length ? Math.min(...applicable) : session.cutoff_min
+  }
 
   const ended = !!session.ended_at
 
@@ -974,18 +1041,19 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
     // Minutes since midnight in the TEAM's timezone — not the board device's,
     // which may be travelling or set wrong (the check_in RPC uses team time).
     const nowMin = teamNow().min
+    const cutoff = memberCutoff(member.id)
     let fine = 0
-    if (session.fines_active && nowMin > session.cutoff_min + session.grace_min) {
-      fine = nowMin <= session.cutoff_min + session.tier1_until_min
+    if (session.fines_active && nowMin > cutoff + session.grace_min) {
+      fine = nowMin <= cutoff + session.tier1_until_min
         ? Number(session.tier1_amount) : Number(session.tier2_amount)
     }
-    const input = prompt(`Fine for ${member.name} (computed from current time):`, fine.toFixed(2))
+    const input = prompt(`Fine for ${member.name} (computed from current time, cutoff ${minToLabel(cutoff)}):`, fine.toFixed(2))
     if (input === null) return
     const finalFine = Number(input)
     if (Number.isNaN(finalFine) || finalFine < 0) return alert('Enter a valid amount.')
     const { error } = await supabase.from('checkins').insert({
       session_id: session.id, member_id: member.id, member_name: member.name,
-      mins_late: Math.max(0, nowMin - session.cutoff_min), fine: finalFine, no_show: false,
+      mins_late: Math.max(0, nowMin - cutoff), fine: finalFine, no_show: false,
     })
     if (error) alert('Could not check them in: ' + error.message)
     refresh()
@@ -1072,6 +1140,16 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
             Cutoff {minToLabel(session.cutoff_min)} · free until {minToLabel(session.cutoff_min + session.grace_min)} ·{' '}
             {money(session.tier1_amount)} until {minToLabel(session.cutoff_min + session.tier1_until_min)} · then {money(session.tier2_amount)}
           </p>
+          {Object.keys(segCutoffs).length > 0 && (
+            <p className="text-[11px] text-faint mt-1 self-start text-left">
+              {Object.entries(segCutoffs).map(([id, cutoff]) => (
+                <span key={id} className="mr-2">
+                  {state.segments.find((s) => s.id === id)?.name ?? 'Segment'}: {minToLabel(cutoff)}
+                </span>
+              ))}
+              only — everyone else uses the base cutoff above
+            </p>
+          )}
         </div>
       </Card>
 

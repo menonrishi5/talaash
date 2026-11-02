@@ -174,8 +174,10 @@ export default function Benching() {
             <LocationSelect />
           )}
           {canEdit && <Button size="sm" variant="ghost" onClick={() => setLocOpen(true)}>Manage locations</Button>}
-          {benching.activeLocation && (
+          {benching.activeLocation ? (
             <Badge className="bg-accent-soft text-accent ml-auto">📍 {benching.activeLocation}</Badge>
+          ) : (
+            <Badge className="bg-warn-soft text-warn ml-auto" title="Cleared after each practice — pick the next room above">📍 Room TBD</Badge>
           )}
         </div>
       </Card>

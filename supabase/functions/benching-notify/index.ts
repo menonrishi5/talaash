@@ -1,19 +1,25 @@
 // Benching notification engine. Deploy as edge function "benching-notify";
 // a pg_cron job (migration-5) invokes it every 10 minutes.
 //
-// Slots are on duty by default — nobody has to accept. Sends Slack DMs for
-// each upcoming occurrence:
-//   accept-request : slot enters the 48h window — a heads-up, not a request
-//                    (kind name kept as-is so dedup keys don't churn)
-//   day-before     : ~24h out — reminder to whoever's on duty
+// Slots are on duty by default — nobody has to accept. Sends Slack DMs (each
+// one @-mentions the member so it notifies even when they only have
+// "mentions" notifications on) for each upcoming occurrence:
+//   accept-request : slot enters the 48h window — a heads-up with buttons
+//   day-before     : ~24h out — reminder, with buttons, + email
+//   twelve-hour    : ~12h out — second nudge, with buttons
+//   hour-before    : ~60 min out — final reminder, + email
 //   reserve-called : the assigned member explicitly passed it to the reserve
-//   day-of         : morning of (9 AM Chicago) to whoever is on duty
-//   hour-before    : ~60 min out to whoever is on duty
-// None of these fire once a slot's been explicitly left unclaimed (either
-// side rejected it outright, or the reserve also declined a pass-along).
+// Reminders (heads-up / 24h / 12h) are held until 8 AM Chicago if they'd
+// land overnight, and stop once the member taps "I've got it" (handled by
+// the slack-interact function). The 1h reminder always fires. None of these
+// fire once a slot's been explicitly left unclaimed.
 // And for self-arranged cover swaps (cover_requests):
-//   cover-request  : you were asked to cover a specific teammate's slot
-//   cover-answered : the person you asked accepted or declined
+//   cover-request  : you were asked to cover a specific teammate's slot (+ email)
+//   cover-answered : the person you asked accepted or declined (+ email)
+//
+// Email is optional: set RESEND_API_KEY and EMAIL_FROM (a sender on a domain
+// verified in Resend) and the starred reminders are also emailed to the
+// member's login address; without them email is silently skipped.
 //
 // Members are reached via profiles.member_id -> account email -> Slack
 // users.lookupByEmail. Needs SLACK_BOT_TOKEN (scopes: chat:write,
@@ -97,6 +103,52 @@ async function slackIdForEmail(email: string): Promise<{ id: string | null; erro
   return result;
 }
 
+const APP_URL = "https://talaash-five.vercel.app/";
+
+function chicagoHour(): number {
+  const h = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hour12: false }).format(new Date());
+  return Number(h) % 24;
+}
+
+// Optional email via Resend. Returns "skipped" when not configured.
+async function sendEmail(to: string, subject: string, text: string): Promise<string> {
+  const key = Deno.env.get("RESEND_API_KEY");
+  const from = Deno.env.get("EMAIL_FROM");
+  if (!key || !from) return "skipped";
+  const r = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from, to: [to], subject, text: `${text}\n\nOpen Talaash HQ: ${APP_URL}` }),
+  });
+  return r.ok ? "sent" : `email error: ${r.status} ${(await r.text()).slice(0, 160)}`;
+}
+
+type Buttons = { week: string; slotId: string; role: "primary" | "reserve"; canPass: boolean; memberId: string };
+function blocksFor(text: string, b: Buttons) {
+  const value = `${b.week}|${b.slotId}|${b.role}|${b.memberId}`;
+  return [
+    { type: "section", text: { type: "mrkdwn", text } },
+    {
+      type: "actions",
+      elements: [
+        { type: "button", style: "primary", action_id: "bench_ack", value, text: { type: "plain_text", text: "✅ I've got it" } },
+        ...(b.canPass
+          ? [{
+            type: "button", action_id: "bench_pass", value, text: { type: "plain_text", text: "↪️ Pass to my reserve" },
+            confirm: {
+              title: { type: "plain_text", text: "Pass this slot?" },
+              text: { type: "mrkdwn", text: "Your reserve will be notified and take over." },
+              confirm: { type: "plain_text", text: "Pass it" },
+              deny: { type: "plain_text", text: "Never mind" },
+            },
+          }]
+          : []),
+        { type: "button", action_id: "bench_open", url: APP_URL, text: { type: "plain_text", text: "Other options" } },
+      ],
+    },
+  ];
+}
+
 Deno.serve(async (_req) => {
   try {
     if (!Deno.env.get("SLACK_BOT_TOKEN")) throw new Error("SLACK_BOT_TOKEN not set");
@@ -136,7 +188,11 @@ Deno.serve(async (_req) => {
     };
     // Prefer an explicitly-set Slack email, fall back to the login email.
     const emailByMember: Record<string, string> = {};
-    for (const p of profiles ?? []) emailByMember[p.member_id] = p.slack_email || p.email;
+    const loginEmailByMember: Record<string, string> = {};
+    for (const p of profiles ?? []) {
+      emailByMember[p.member_id] = p.slack_email || p.email;
+      loginEmailByMember[p.member_id] = p.email;
+    }
     const nameOf = (id: string | null) => roster.find((m) => m.id === id)?.name ?? "someone";
     // Only a *successful* send suppresses a retry. Undeliverable attempts
     // (e.g. Slack email not set yet) are retried on later runs, so fixing the
@@ -148,9 +204,13 @@ Deno.serve(async (_req) => {
     for (const r of responses ?? []) respByOcc[`${r.week_iso}:${r.slot_id}`] = r;
 
     const now = new Date();
-    const appUrl = "https://talaash-five.vercel.app/";
-    const loc = benching.activeLocation ? ` at ${benching.activeLocation}` : "";
-    const toSend: { memberId: string; occ: string; kind: string; text: string }[] = [];
+    const appUrl = APP_URL;
+    // The room is blanked after each practice, so it's often genuinely unset —
+    // say so instead of leaving a stale room (or nothing) in the message.
+    const loc = benching.activeLocation ? ` at ${benching.activeLocation}` : " (room TBD — check Talaash HQ)";
+    const h = chicagoHour();
+    const quiet = h >= 22 || h < 8; // hold non-urgent reminders overnight
+    const toSend: { memberId: string; occ: string; kind: string; text: string; buttons?: Buttons; email?: boolean }[] = [];
 
     for (const wk of [weekStart(0), weekStart(1)]) {
       for (const slot of slotsFor(wk.iso)) {
@@ -172,36 +232,47 @@ Deno.serve(async (_req) => {
         const onDutyId = reserveOn ? slot.reserveId! : slot.memberId;
         const when = `${DAY_NAMES[slot.day]} ${minLabel(slot.startMin)}–${minLabel(slot.endMin)}${loc}`;
 
-        const queue = (kind: string, memberId: string, text: string) => {
-          if (!sent.has(`${occ}|${kind}`)) toSend.push({ memberId, occ, kind, text });
+        // Confirmed already? Then no more nagging (the 1h reminder still fires).
+        const acked = reserveOn
+          ? (resp as { reserve_status?: string } | undefined)?.reserve_status === "accepted"
+          : resp?.status === "accepted";
+        const role = reserveOn ? "reserve" : "primary";
+        const buttons: Buttons = {
+          week: wk.iso, slotId: slot.id, role, memberId: onDutyId,
+          canPass: role === "primary" && !!slot.reserveId,
         };
 
-        // heads-up: entering the 48h window — a plain notice, not a request
-        // to accept. Kept as "accept-request" so dedup keys don't churn.
-        if (!passed && msUntil <= 48 * 3600000) {
+        const queue = (kind: string, memberId: string, text: string, opts: { buttons?: Buttons; email?: boolean } = {}) => {
+          if (!sent.has(`${occ}|${kind}`)) toSend.push({ memberId, occ, kind, text, ...opts });
+        };
+
+        // heads-up: entering the 48h window — on duty by default, tap to confirm.
+        if (!passed && !acked && !quiet && msUntil <= 48 * 3600000) {
           queue("accept-request", slot.memberId,
-            `🪑 You're on benching duty ${when}. No action needed unless you can't make it — you can pass it to your reserve, arrange a specific cover, or leave it unclaimed in Talaash HQ: ${appUrl}`);
+            `🪑 Heads up — you're on benching duty ${when}. You're set by default; tap below if that changes.`,
+            { buttons });
         }
-        // day-before (~24h out) — a reminder to whoever's on duty, unless
-        // the slot's been left fully unclaimed.
-        if (msUntil <= 26 * 3600000 && msUntil > 20 * 3600000 && !uncovered) {
-          queue("day-before", onDutyId, `⏰ Reminder: benching tomorrow, ${when}.`);
+        // ~24h out
+        if (msUntil <= 25 * 3600000 && msUntil > 13 * 3600000 && !uncovered && !acked && !quiet) {
+          queue("day-before", onDutyId, `⏰ Benching tomorrow: ${when}. Can you confirm you've got it?`,
+            { buttons, email: true });
+        }
+        // ~12h out — second nudge for anyone who hasn't responded
+        if (msUntil <= 12.5 * 3600000 && msUntil > 5 * 3600000 && !uncovered && !acked && !quiet) {
+          queue("twelve-hour", onDutyId, `👀 Benching ${when} is about 12 hours out — still good? Tap to confirm.`,
+            { buttons });
         }
         // reserve on duty — the assigned member explicitly passed it along
         if (reserveOn) {
           queue("reserve-called", slot.reserveId!,
-            `🔁 ${nameOf(slot.memberId)} passed you their benching slot ${when} — you're covering it now.`);
+            `🔁 ${nameOf(slot.memberId)} passed you their benching slot ${when} — you're covering it now.`,
+            { buttons: { ...buttons, canPass: false }, email: true });
           queue("reserve-passed", slot.memberId,
             `Your benching slot ${when} was passed to your reserve (${nameOf(slot.reserveId)}).`);
         }
-        // day-of: after 9 AM Chicago on the slot's day
-        const nineAm = chicagoDate(wk.y, wk.mo, wk.d + slot.day, 9 * 60);
-        if (now >= nineAm && msUntil > 0 && !uncovered) {
-          queue("day-of", onDutyId, `📅 Benching today: ${when}.`);
-        }
-        // hour-before
+        // hour-before — always fires, even overnight and even if confirmed
         if (msUntil <= 75 * 60000 && msUntil > 0 && !uncovered) {
-          queue("hour-before", onDutyId, `🚨 Benching in about an hour: ${when}.`);
+          queue("hour-before", onDutyId, `🚨 Benching in about an hour: ${when}.`, { email: true });
         }
       }
     }
@@ -223,6 +294,7 @@ Deno.serve(async (_req) => {
           memberId: cr.to_member_id, occ, kind: "cover-request",
           text: `🔁 ${nameOf(cr.from_member_id)} asked you to cover their benching slot ${when}. ` +
             `Accept or decline in Talaash HQ: ${appUrl}`,
+          email: true,
         });
       }
       if (
@@ -234,6 +306,7 @@ Deno.serve(async (_req) => {
           text: cr.status === "accepted"
             ? `✅ ${nameOf(cr.to_member_id)} accepted your benching cover for ${when} — the slot and its hours are theirs now.`
             : `❌ ${nameOf(cr.to_member_id)} can't cover your benching slot ${when} — you'll need another plan.`,
+          email: true,
         });
       }
     }
@@ -245,7 +318,11 @@ Deno.serve(async (_req) => {
       if (email) {
         const { id: slackId, error: lookupError } = await slackIdForEmail(email);
         if (slackId) {
-          const r = await slack("chat.postMessage", { channel: slackId, text: n.text });
+          // @-mention so it notifies for people who only get mention alerts.
+          const text = `<@${slackId}> ${n.text}`;
+          const params: Record<string, unknown> = { channel: slackId, text };
+          if (n.buttons) params.blocks = JSON.stringify(blocksFor(text, n.buttons));
+          const r = await slack("chat.postMessage", params);
           detail = r.ok ? "sent" : `slack error: ${r.error}`;
           if (r.ok) delivered++;
         } else {
@@ -260,6 +337,20 @@ Deno.serve(async (_req) => {
         { occ_key: n.occ, kind: n.kind, member_id: n.memberId, detail, sent_at: new Date().toISOString() },
         { onConflict: "occ_key,kind" },
       );
+
+      // Email too (once), independent of whether Slack worked. Skipped
+      // silently when email isn't configured or the member has no login email.
+      const loginEmail = loginEmailByMember[n.memberId];
+      const emailKind = `${n.kind}+email`;
+      if (n.email && loginEmail && !sent.has(`${n.occ}|${emailKind}`)) {
+        const res = await sendEmail(loginEmail, "Talaash benching", n.text);
+        if (res !== "skipped") {
+          await supabase.from("notification_log").upsert(
+            { occ_key: n.occ, kind: emailKind, member_id: n.memberId, detail: res, sent_at: new Date().toISOString() },
+            { onConflict: "occ_key,kind" },
+          );
+        }
+      }
     }
 
     return new Response(

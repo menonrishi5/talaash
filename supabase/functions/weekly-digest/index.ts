@@ -1,5 +1,7 @@
 // Weekly benching digest to a Slack channel. Deploy as "weekly-digest";
 // migration-9 schedules it (e.g. Monday 9am). BENCHING ONLY — no money.
+// Only posts when something is uncovered — an "everything's covered" post
+// every Monday was just noise that trained people to ignore the channel.
 // Needs SLACK_BOT_TOKEN and settings.slackDigestChannel (a channel id the
 // bot has been invited to).
 
@@ -83,10 +85,15 @@ Deno.serve(async (_req) => {
       }
     }
 
+    if (uncovered.length === 0) {
+      return new Response(JSON.stringify({ ok: true, skipped: "everything covered" }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     let text = `*🪑 Benching this week* (${weekISO}${letter ? ` · Week ${letter}` : ""})${benching.activeLocation ? ` · 📍 ${benching.activeLocation}` : ""}\n`;
     text += `${covered}/${template.length} slots covered.\n`;
-    if (uncovered.length) text += `\n*⚠️ Uncovered (${uncovered.length}):*\n${uncovered.join("\n")}\n`;
-    else text += `\n✅ Everything's covered — nice.`;
+    text += `\n*⚠️ Uncovered (${uncovered.length}):*\n${uncovered.join("\n")}\n`;
 
     const res = await fetch("https://slack.com/api/chat.postMessage", {
       method: "POST",

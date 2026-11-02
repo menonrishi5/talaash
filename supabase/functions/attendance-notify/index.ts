@@ -231,7 +231,10 @@ Deno.serve(async (req) => {
 
     // ---- cron: reminders + board summaries for announced practices ----
     const { data: anns } = await supabase
-      .from("attendance_announcements").select("practice_date");
+      .from("attendance_announcements").select("practice_date,location");
+    const { data: sessRows } = await supabase
+      .from("attendance_sessions").select("session_date,ended_at");
+    const endedAt = new Map((sessRows ?? []).map((r) => [r.session_date as string, r.ended_at as string | null]));
     const { data: log } = await supabase
       .from("notification_log").select("occ_key,kind");
     const sent = new Set((log ?? []).map((l) => `${l.occ_key}|${l.kind}`));
@@ -245,6 +248,25 @@ Deno.serve(async (req) => {
       const start = chicago(iso, sm);
       const deadline = new Date(start.getTime() - windowH * 3600000);
       const msToDeadline = deadline.getTime() - now.getTime();
+
+      // After the practice (session ended, or 4.5h past its start as a
+      // fallback), blank the benching room if it's still the one announced
+      // for that practice — otherwise the next practice's reminders would
+      // quote a stale room. If the board already set a new room, leave it.
+      const over = endedAt.get(iso) ? now.getTime() > new Date(endedAt.get(iso)!).getTime()
+        : now.getTime() > start.getTime() + 4.5 * 3600000;
+      if (over && !sent.has(`${iso}|loc-reset`)) {
+        const { data: bRow } = await supabase.from("app_state").select("data").eq("key", "benching").maybeSingle();
+        const b = (bRow?.data ?? null) as { activeLocation?: string | null } | null;
+        const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
+        if (b && b.activeLocation && norm(b.activeLocation) === norm(a.location)) {
+          await supabase.from("app_state")
+            .update({ data: { ...b, activeLocation: null }, updated_at: new Date().toISOString() })
+            .eq("key", "benching");
+          results.push(`room reset ${iso}`);
+        }
+        await logOnce(supabase, iso, "loc-reset", "sent");
+      }
 
       // window-closing reminder — within the last hour before the deadline
       if (channel && msToDeadline <= 60 * 60000 && msToDeadline > 0 && !sent.has(`${iso}|attn-reminder`)) {

@@ -473,7 +473,7 @@ function AnnounceControls() {
     const r = room()
     const when = `${DAY_NAMES[next.day]} ${fmtDate(next.dateISO)} at ${minToLabel(next.startMin)}`
     const lines = agendaLines()
-    const preview = `${ann ? 'Re-announce' : 'Announce'} ${when}${r ? ` · 📍 ${r}` : ''} to the team?` +
+    const preview = `${ann ? 'Re-announce' : 'Announce'} ${when}${r ? ` · 📍 ${r}` : ' · room TBD (set it in Benching first if you know it)'} to the team?` +
       (lines.length ? `\n\nAgenda from the Practice Calendar:\n${lines.join('\n')}` : '\n\n(No blocks on the Practice Calendar for this date — add them there for a detailed message.)')
     if (!confirm(preview)) return
     setBusy(true)
@@ -912,7 +912,7 @@ function StartSession({ todayISO, onCreated }) {
 // ---- live session dashboard ----
 
 function LiveSession({ session, checkins, excuses = [], refresh }) {
-  const { state } = useStore()
+  const { state, setBenching } = useStore()
   const { canEdit } = useAuth()
   const [qr, setQr] = useState(null)
   const [selNoShow, setSelNoShow] = useState(() => new Set())
@@ -995,6 +995,15 @@ function LiveSession({ session, checkins, excuses = [], refresh }) {
           .upsert(rows, { onConflict: 'session_id,member_id', ignoreDuplicates: true })
         if (e2) console.error('Could not record no-shows', e2)
       }
+    }
+    // The practice is over, so the room we announced is stale — blank it so
+    // the next practice's benching reminders don't quote it. (Only if it's
+    // still the announced room; a room the board already set for next time
+    // stays.) The attendance-notify cron does the same as a fallback.
+    const { data: annRow } = await supabase
+      .from('attendance_announcements').select('location').eq('practice_date', session.session_date).maybeSingle()
+    if (annRow?.location && (state.benching?.activeLocation ?? '').trim().toLowerCase() === annRow.location.trim().toLowerCase()) {
+      setBenching({ activeLocation: null })
     }
     // Post the recap to the attendance channel (no-op if no channel set).
     supabase.functions.invoke('attendance-notify', { body: { kind: 'recap', session_id: session.id } }).catch(() => {})

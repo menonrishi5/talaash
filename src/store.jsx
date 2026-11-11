@@ -108,10 +108,21 @@ export function StoreProvider({ children }) {
   // effect below), `syncStatus` becomes 'empty', and the UI has to show an
   // explicit, editor-only confirmation (see `seedFromLocal`) before anything
   // is ever pushed over what might be a perfectly intact server.
+  //
+  // A FAILED load (network error, timeout, a laptop waking from sleep) used
+  // to set `loadedRef` anyway with nothing recorded in `lastSynced`, so the
+  // persist effect saw every domain as "changed" and upserted this browser's
+  // local copy — often blank or stale — over the real data. That is what
+  // wiped the team's data a second time. Now a failed load leaves `loadedRef`
+  // false (so nothing is ever written), shows 'offline', and keeps retrying
+  // (on a timer, when the tab refocuses, and when the network returns) until
+  // one read actually succeeds.
   useEffect(() => {
     let cancelled = false
+    let retryTimer = null
     const fetchDomains = () => supabase.from('app_state').select('key,data')
-    ;(async () => {
+    const attempt = async () => {
+      if (cancelled || loadedRef.current) return
       try {
         let { data, error } = await fetchDomains()
         if (error) throw error
@@ -120,7 +131,7 @@ export function StoreProvider({ children }) {
           ;({ data, error } = await fetchDomains())
           if (error) throw error
         }
-        if (cancelled) return
+        if (cancelled || loadedRef.current) return
         if (data.length === 0) {
           setSyncStatus('empty')
           return
@@ -135,13 +146,26 @@ export function StoreProvider({ children }) {
         loadedRef.current = true
         setSyncStatus('synced')
       } catch (e) {
-        console.error('Supabase load failed — working from local cache.', e)
-        loadedRef.current = true
-        if (!cancelled) setSyncStatus('offline')
+        console.error('Supabase load failed — read-only from local cache, will retry.', e)
+        if (!cancelled) {
+          setSyncStatus('offline')
+          retryTimer = setTimeout(attempt, 15000)
+        }
       }
-    })()
+    }
+    const retryNow = () => {
+      if (loadedRef.current) return
+      clearTimeout(retryTimer)
+      attempt()
+    }
+    attempt()
+    window.addEventListener('online', retryNow)
+    window.addEventListener('focus', retryNow)
     return () => {
       cancelled = true
+      clearTimeout(retryTimer)
+      window.removeEventListener('online', retryNow)
+      window.removeEventListener('focus', retryNow)
     }
   }, [])
 
@@ -197,8 +221,10 @@ export function StoreProvider({ children }) {
   useEffect(() => {
     localStorage.setItem(KEY, JSON.stringify(state))
     if (!loadedRef.current || !canEditRef.current) return
+    // Only domains we've actually read from the server (lastSynced set) can
+    // be written back — a belt-and-braces guard on top of loadedRef.
     const changed = DOMAIN_KEYS.filter(
-      (k) => canonJSON(state[k]) !== lastSynced.current[k],
+      (k) => lastSynced.current[k] !== undefined && canonJSON(state[k]) !== lastSynced.current[k],
     )
     if (changed.length === 0) return
     setSyncStatus('saving')

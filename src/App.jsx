@@ -82,7 +82,7 @@ const SYNC_LABEL = {
   connecting: { dot: 'bg-faint animate-pulse', text: 'Connecting…' },
   synced: { dot: 'bg-good', text: 'Synced' },
   saving: { dot: 'bg-warn animate-pulse', text: 'Saving…' },
-  offline: { dot: 'bg-bad', text: 'Offline — saved locally' },
+  offline: { dot: 'bg-bad', text: "Can't reach server — retrying, edits won't save" },
 }
 
 const THEME_ICONS = {

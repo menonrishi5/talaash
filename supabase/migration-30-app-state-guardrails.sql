@@ -43,6 +43,9 @@ create or replace function public.app_state_guard()
 returns trigger
 language plpgsql security definer set search_path = public
 as $$
+declare
+  was_filled boolean;
+  now_empty boolean;
 begin
   if tg_op = 'DELETE' then
     insert into app_state_history (key, data, row_updated_at, changed_by, op)
@@ -50,10 +53,11 @@ begin
     return old;
   end if;
 
-  -- (plpgsql `if` + nested `case` so jsonb_array_length never sees a non-array)
-  if old.key = 'roster'
-     and case when jsonb_typeof(old.data) = 'array' then jsonb_array_length(old.data) > 0 else false end
-     and case when jsonb_typeof(new.data) = 'array' then jsonb_array_length(new.data) = 0 else false end then
+  -- Compute in variables: a CASE's THEN inside an IF condition would end
+  -- the condition early in plpgsql.
+  was_filled := case when jsonb_typeof(old.data) = 'array' then jsonb_array_length(old.data) > 0 else false end;
+  now_empty  := case when jsonb_typeof(new.data) = 'array' then jsonb_array_length(new.data) = 0 else false end;
+  if old.key = 'roster' and was_filled and now_empty then
     raise exception 'Refusing to empty the roster (a blank-data overwrite is blocked). Nothing was changed.'
       using errcode = 'check_violation';
   end if;

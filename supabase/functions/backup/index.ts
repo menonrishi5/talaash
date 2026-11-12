@@ -1,4 +1,4 @@
-// Weekly backup. Deploy as edge function "backup"; migration-9 schedules it.
+// Daily backup. Deploy as edge function "backup"; migration-30 schedules it.
 // Dumps every table to a timestamped JSON file in the private "backups"
 // bucket. Download from Storage → backups to restore. Runs as service role.
 
@@ -32,11 +32,11 @@ Deno.serve(async (_req) => {
       .upload(name, JSON.stringify(dump), { contentType: "application/json", upsert: true });
     if (upErr) throw upErr;
 
-    // Keep the most recent ~12 backups.
+    // Keep the most recent ~30 backups (a month of daily dumps).
     const { data: files } = await supabase.storage.from("backups").list("", {
       sortBy: { column: "name", order: "desc" },
     });
-    const stale = (files ?? []).slice(12).map((f) => f.name);
+    const stale = (files ?? []).slice(30).map((f) => f.name);
     if (stale.length) await supabase.storage.from("backups").remove(stale);
 
     return new Response(JSON.stringify({ ok: true, file: name }), {
